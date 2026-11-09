@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">Spor Toto Hedef 15</string>
+    <string name="nav_home">Anasayfa</string>
+    <string name="nav_analysis">Analiz</string>
+    <string name="nav_coupons">Kuponlarım</string>
+    <string name="nav_forum">Forum</string>
+    <string name="nav_profile">Profilim</string>
+</resources>

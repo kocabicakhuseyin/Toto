@@ -1,0 +1,6 @@
+{
+  "name": "Spor Toto Hedef 15",
+  "description": "Spor Toto otomatik kupon hazırlama, 14-13 garanti formülleri, analiz bülteni, canlı forum ve Nesine entegrasyonu.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
