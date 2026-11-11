@@ -4,6 +4,7 @@ import com.example.model.MatchLiveScore
 import com.example.model.MatchStatus
 import com.example.model.PredictionOutcome
 import com.example.network.ApiFootballLiveResponse
+import com.example.network.ApiFootballLiveService
 import com.example.network.NetworkModule
 import com.example.network.ScoreCardsLiveService
 import com.example.network.ScoreCardsWidgetResponse
@@ -43,31 +44,68 @@ class LiveScoresAndCouponSurvivalTest {
     }
 
     @Test
-    fun missingApiKeyUsesThePublicFeedForRealScores() = runBlocking {
-        val scoreCardsJson = """
-          {
-            "success":true,
-            "league":{"name":"UEFA Nations League"},
-            "cache_age_seconds":43,
-            "live":[{"fixture_id":123456,"home_team":"Türkiye","away_team":"Belgium",
-                     "home_score":2,"away_score":1,"state":"live","status":"2H","elapsed":67}],
-            "recently_finished":[]
-          }
-        """.trimIndent()
-        val response = NetworkModule.moshi.adapter(ScoreCardsWidgetResponse::class.java)
-            .fromJson(scoreCardsJson)!!
+    fun missingApiKeyNeverCallsOtherLiveScoreProviders() = runBlocking {
+        var fallbackCalls = 0
         val publicService = object : ScoreCardsLiveService {
-            override suspend fun getLeague(leagueId: Int): Response<ScoreCardsWidgetResponse> =
-                Response.success(response)
+            override suspend fun getLeague(leagueId: Int): Response<ScoreCardsWidgetResponse> {
+                fallbackCalls++
+                return Response.success(ScoreCardsWidgetResponse(success = false))
+            }
         }
         val repository = SporTotoBulletinRepositoryImpl(
-            liveScoreApiKey = "", scoreCardsService = publicService, trackedLeagueIds = listOf(5)
+            liveScoreApiKey = "",
+            scoreCardsService = publicService,
+            trackedLeagueIds = listOf(5)
         )
         val result = repository.pollLiveScores()
-        assertTrue(result.isSuccess)
-        assertEquals("ScoreCards", repository.liveScoreProvider.value)
-        assertEquals("2 - 1", result.getOrThrow().single().scoreDisplay)
-        assertEquals("67'", result.getOrThrow().single().minuteText)
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull()?.message.orEmpty().contains("anahtar"))
+        assertEquals(0, fallbackCalls)
+        assertTrue(repository.liveScores.value.isEmpty())
+    }
+
+    @Test
+    fun apiFootballIsPrimaryAndRespectsFreePlanPollingCache() = runBlocking {
+        val fixtureJson = """
+            {
+              "errors": [],
+              "response": [{
+                "fixture": {"id": 44821, "status": {"short": "2H", "elapsed": 73}},
+                "teams": {"home": {"name": "Türkiye"}, "away": {"name": "Belçika"}},
+                "goals": {"home": 2, "away": 1},
+                "league": {"name": "UEFA"}
+              }]
+            }
+        """.trimIndent()
+        val parsed = NetworkModule.moshi.adapter(ApiFootballLiveResponse::class.java)
+            .fromJson(fixtureJson)!!
+        var apiCalls = 0
+        val liveApi = object : ApiFootballLiveService {
+            override suspend fun getLiveFixtures(
+                apiKey: String, live: String
+            ): Response<ApiFootballLiveResponse> {
+                apiCalls++
+                assertEquals("free-test-key", apiKey)
+                assertEquals("all", live)
+                return Response.success(parsed)
+            }
+        }
+        val repository = SporTotoBulletinRepositoryImpl(
+            liveScoreService = liveApi, liveScoreApiKey = "free-test-key"
+        )
+
+        val first = repository.pollLiveScores().getOrThrow()
+        assertEquals("API-FOOTBALL (Free)", repository.liveScoreProvider.value)
+        assertEquals("2 - 1", first.single().scoreDisplay)
+        assertEquals("73'", first.single().minuteText)
+        assertEquals(1, apiCalls)
+        assertEquals(79, repository.freeScoreRequestsRemaining())
+
+        // Consecutive manual refreshes reuse the verified data and cost 0 requests.
+        val second = repository.pollLiveScores().getOrThrow()
+        assertEquals(first, second)
+        assertEquals(1, apiCalls)
+        assertEquals(79, repository.freeScoreRequestsRemaining())
     }
 
     @Test
