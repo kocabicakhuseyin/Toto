@@ -95,7 +95,9 @@ class SporTotoBulletinRepositoryImpl(
                         } else match
                     }
                     MatchStatus.UPCOMING -> {
-                        match
+                        if (pollIteration >= 3 && match.matchNumber == 9) {
+                            match.copy(status = MatchStatus.LIVE, minuteText = "1'", homeScore = 0, awayScore = 0)
+                        } else match
                     }
                     MatchStatus.FINISHED -> {
                         match

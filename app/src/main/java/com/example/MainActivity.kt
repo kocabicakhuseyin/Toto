@@ -1,25 +1,36 @@
 package com.example
 
+import android.Manifest
+import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.model.FormulaType
 import com.example.ui.components.AppNavTab
+import com.example.ui.components.InAppNotificationBannerView
 import com.example.ui.components.ModernBottomNavBar
 import com.example.ui.components.TopHeaderBar
 import com.example.ui.screens.CouponsScreen
@@ -29,6 +40,7 @@ import com.example.ui.screens.FormulaWizardDialog
 import com.example.ui.screens.ForumScreen
 import com.example.ui.screens.GooglePlayBillingDialog
 import com.example.ui.screens.MatchAnalysisScreen
+import com.example.ui.screens.MatchNotificationDialog
 import com.example.ui.screens.MatchResultsScreen
 import com.example.ui.screens.ProfileScreen
 import com.example.ui.screens.TotoFilterDialog
@@ -95,9 +107,30 @@ fun MainAppContent() {
     val lastLiveUpdateTime by viewModel.lastLiveUpdateTime.collectAsStateWithLifecycle()
     val isRefreshingLiveScores by viewModel.isRefreshingLiveScores.collectAsStateWithLifecycle()
 
+    val favoritedMatchNumbers by viewModel.favoritedMatchNumbers.collectAsStateWithLifecycle()
+    val notificationPreferences by viewModel.notificationPreferences.collectAsStateWithLifecycle()
+    val notificationHistory by viewModel.notificationHistory.collectAsStateWithLifecycle()
+    val activeInAppAlert by viewModel.activeInAppAlert.collectAsStateWithLifecycle()
+    var showNotificationDialog by remember { mutableStateOf(false) }
+
     val liveMatchesCount = remember(liveScores) { liveScores.count { it.isLive } }
+    val unreadNotificationsCount = remember(notificationHistory) { notificationHistory.count { !it.isRead } }
     val survivalReport = remember(currentCoupon, liveScores) {
         viewModel.computeCouponSurvival(currentCoupon, liveScores)
+    }
+
+    // Permission launcher for Android 13+ (POST_NOTIFICATIONS)
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { _ ->
+        // Dynamically checked before posting notifications
+    }
+
+    LaunchedEffect(context) {
+        viewModel.attachNotificationContext(context)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
     }
 
     var currentTab by remember { mutableStateOf(AppNavTab.HOME) }
@@ -120,7 +153,9 @@ fun MainAppContent() {
                 onProfileClick = { currentTab = AppNavTab.PROFILE },
                 onOpenWallet = { showGooglePlayDialog = true },
                 onLiveClick = { currentTab = AppNavTab.RESULTS },
-                liveMatchesCount = liveMatchesCount
+                liveMatchesCount = liveMatchesCount,
+                onOpenNotifications = { showNotificationDialog = true },
+                unreadNotificationsCount = unreadNotificationsCount
             )
         },
         bottomBar = {
@@ -178,7 +213,9 @@ fun MainAppContent() {
                             currentTab = AppNavTab.COUPONS
                         },
                         isRefreshing = isRefreshingBulletin,
-                        onRefreshBulletin = { viewModel.refreshBulletin(forceRefresh = true) }
+                        onRefreshBulletin = { viewModel.refreshBulletin(forceRefresh = true) },
+                        favoritedMatchNumbers = favoritedMatchNumbers,
+                        onToggleFavorite = { viewModel.toggleFavoriteMatch(it) }
                     )
                 }
 
@@ -190,6 +227,9 @@ fun MainAppContent() {
                         isRefreshing = isRefreshingLiveScores,
                         currentCoupon = currentCoupon,
                         survivalReport = survivalReport,
+                        favoritedMatchNumbers = favoritedMatchNumbers,
+                        onToggleFavorite = { viewModel.toggleFavoriteMatch(it) },
+                        onOpenNotifications = { showNotificationDialog = true },
                         onTogglePolling = { viewModel.toggleLivePolling() },
                         onPollNow = { viewModel.pollLiveScoresNow() },
                         onNavigateToCoupons = { currentTab = AppNavTab.COUPONS }
@@ -262,6 +302,27 @@ fun MainAppContent() {
                         onUpdateUsername = { viewModel.updateUsername(it) },
                         onSelectTeam = { viewModel.updateFavoriteTeam(it) },
                         onOpenWallet = { showGooglePlayDialog = true }
+                    )
+                }
+            }
+
+            // Floating In-App Heads-Up Notification Banner (sliding down from top)
+            AnimatedVisibility(
+                visible = activeInAppAlert != null,
+                enter = slideInVertically(initialOffsetY = { -it }),
+                exit = slideOutVertically(targetOffsetY = { -it }),
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 8.dp)
+            ) {
+                activeInAppAlert?.let { alert ->
+                    InAppNotificationBannerView(
+                        alert = alert,
+                        onDismiss = { viewModel.dismissInAppAlert() },
+                        onViewMatch = {
+                            viewModel.dismissInAppAlert()
+                            currentTab = AppNavTab.RESULTS
+                        }
                     )
                 }
             }
@@ -346,6 +407,38 @@ fun MainAppContent() {
                 viewModel.applyFiltersAndEliminate(criteria)
                 currentTab = AppNavTab.COUPONS
             }
+        )
+    }
+
+    if (showNotificationDialog) {
+        val hasNotificationPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            androidx.core.content.ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        } else true
+
+        MatchNotificationDialog(
+            preferences = notificationPreferences,
+            history = notificationHistory,
+            favoritedMatchNumbers = favoritedMatchNumbers,
+            matches = liveScores,
+            hasSystemPermission = hasNotificationPermission,
+            onRequestPermission = {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                }
+            },
+            onUpdatePreferences = { viewModel.updateNotificationPreferences(it) },
+            onToggleFavorite = { viewModel.toggleFavoriteMatch(it) },
+            onSimulateTestAlert = { viewModel.simulateTestGoalAlert() },
+            onMarkAllAsRead = { viewModel.markAllAlertsAsRead() },
+            onClearHistory = { viewModel.clearNotificationHistory() },
+            onNavigateToResults = {
+                showNotificationDialog = false
+                currentTab = AppNavTab.RESULTS
+            },
+            onDismiss = { showNotificationDialog = false }
         )
     }
 }

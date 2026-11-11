@@ -68,6 +68,9 @@ import com.example.ui.theme.TextMuted
 import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
 import com.example.ui.theme.VibrantRed
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
+import androidx.compose.material.icons.filled.Notifications
 
 @Composable
 fun MatchAnalysisScreen(
@@ -86,6 +89,8 @@ fun MatchAnalysisScreen(
     onApplyFilterProfile: (FilterProfileType) -> Unit = {},
     isRefreshing: Boolean = false,
     onRefreshBulletin: () -> Unit = {},
+    favoritedMatchNumbers: Set<Int> = emptySet(),
+    onToggleFavorite: (Int) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val totalSelectedMatches = matches.count { it.selections.isNotEmpty() }
@@ -437,6 +442,8 @@ fun MatchAnalysisScreen(
             items(matches, key = { it.id }) { match ->
                 ModernMatchCard(
                     match = match,
+                    isFavorited = favoritedMatchNumbers.contains(match.matchNumber),
+                    onToggleFavorite = { onToggleFavorite(match.matchNumber) },
                     onToggleOutcome = { outcome -> onTogglePrediction(match.id, outcome) }
                 )
             }
@@ -526,6 +533,8 @@ fun MatchAnalysisScreen(
 @Composable
 private fun ModernMatchCard(
     match: TotoMatch,
+    isFavorited: Boolean = false,
+    onToggleFavorite: () -> Unit = {},
     onToggleOutcome: (PredictionOutcome) -> Unit
 ) {
     Card(
@@ -534,10 +543,13 @@ private fun ModernMatchCard(
             .testTag("modern_match_${match.matchNumber}"),
         colors = CardDefaults.cardColors(containerColor = DarkCard),
         shape = RoundedCornerShape(14.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, DarkCardBorder)
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            if (isFavorited) CasinoGold.copy(alpha = 0.65f) else DarkCardBorder
+        )
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
-            // Header Row: Match Number, Date, League
+            // Header Row: Match Number, Date, Favorite Toggle, League
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -558,13 +570,47 @@ private fun ModernMatchCard(
                             fontSize = 11.sp
                         )
                     }
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = match.matchDate,
                         color = TextMuted,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Medium
                     )
+
+                    Spacer(modifier = Modifier.width(6.dp))
+
+                    // Favorite Star Toggle
+                    IconButton(
+                        onClick = onToggleFavorite,
+                        modifier = Modifier
+                            .size(32.dp)
+                            .testTag("btn_fav_analysis_match_${match.matchNumber}")
+                    ) {
+                        Icon(
+                            imageVector = if (isFavorited) Icons.Default.Star else Icons.Default.StarBorder,
+                            contentDescription = if (isFavorited) "Favorilerden Çıkar" else "Favoriye Ekle (Gol & Başlama Bildirimi)",
+                            tint = if (isFavorited) CasinoGold else TextMuted,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+
+                    if (isFavorited) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(CasinoGold.copy(alpha = 0.15f))
+                                .border(1.dp, CasinoGold.copy(alpha = 0.4f), RoundedCornerShape(4.dp))
+                                .padding(horizontal = 4.dp, vertical = 1.dp)
+                        ) {
+                            Text(
+                                text = "Takipte",
+                                color = CasinoGoldLight,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
                 }
 
                 Box(

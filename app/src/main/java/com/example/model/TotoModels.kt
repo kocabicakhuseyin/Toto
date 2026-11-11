@@ -20,7 +20,8 @@ data class TotoMatch(
     val matchDate: String,
     val probability: MatchProbability,
     val selections: Set<PredictionOutcome> = emptySet(),
-    val isBanko: Boolean = false
+    val isBanko: Boolean = false,
+    val isFavorited: Boolean = false
 )
 
 enum class MatchStatus(val label: String, val badgeColorHex: Long) {
@@ -29,6 +30,38 @@ enum class MatchStatus(val label: String, val badgeColorHex: Long) {
     HALF_TIME("Devre Arası", 0xFFF59E0B),
     FINISHED("Bitti", 0xFF10B981)
 }
+
+enum class MatchAlertEventType(val label: String, val iconEmoji: String) {
+    MATCH_STARTED("Maç Başladı", "📢"),
+    GOAL_SCORED("GOOOOL!", "⚽"),
+    HALF_TIME("Devre Arası", "⏸️"),
+    MATCH_FINISHED("Maç Bitti", "🏁")
+}
+
+data class MatchAlertEvent(
+    val id: String = "alert_${System.currentTimeMillis()}_${(100..999).random()}",
+    val matchNumber: Int,
+    val homeTeam: String,
+    val awayTeam: String,
+    val eventType: MatchAlertEventType,
+    val scoreDisplay: String,
+    val minuteText: String,
+    val scoringTeam: String? = null,
+    val title: String,
+    val message: String,
+    val timestamp: Long = System.currentTimeMillis(),
+    val formattedTime: String = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date()),
+    val isRead: Boolean = false
+)
+
+data class NotificationPreferences(
+    val notifyOnMatchStart: Boolean = true,
+    val notifyOnGoal: Boolean = true,
+    val notifyOnMatchEnd: Boolean = true,
+    val notifyOnlyFavorites: Boolean = true,
+    val soundAndVibration: Boolean = true,
+    val inAppBannerEnabled: Boolean = true
+)
 
 data class MatchLiveScore(
     val matchNumber: Int,
@@ -42,7 +75,8 @@ data class MatchLiveScore(
     val league: String = "UEFA / Süper Lig",
     val homeWinOdd: Double = 1.85,
     val drawOdd: Double = 3.20,
-    val awayWinOdd: Double = 3.40
+    val awayWinOdd: Double = 3.40,
+    val isFavorited: Boolean = false
 ) {
     val winningOutcome: PredictionOutcome?
         get() = when {

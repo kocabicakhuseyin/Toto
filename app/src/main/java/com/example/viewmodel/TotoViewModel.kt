@@ -35,8 +35,11 @@ import com.example.data.local.CouponJsonStorageManager
 import com.example.data.local.SavedJsonCouponMeta
 import com.example.model.CouponSurvivalReport
 import com.example.model.FilterProfileType
+import com.example.model.MatchAlertEvent
+import com.example.model.MatchAlertEventType
 import com.example.model.MatchLiveScore
 import com.example.model.MatchStatus
+import com.example.model.NotificationPreferences
 
 class TotoViewModel(
     private val bulletinRepository: SporTotoBulletinRepository = SporTotoBulletinRepositoryImpl(),
@@ -90,6 +93,23 @@ class TotoViewModel(
     private val _isRefreshingLiveScores = MutableStateFlow(false)
     val isRefreshingLiveScores: StateFlow<Boolean> = _isRefreshingLiveScores.asStateFlow()
 
+    private var appContext: Context? = null
+
+    // Set of match numbers favorited by user for push notifications (default favorites: 1, 4, 7, 9)
+    private val _favoritedMatchNumbers = MutableStateFlow<Set<Int>>(setOf(1, 4, 7, 9))
+    val favoritedMatchNumbers: StateFlow<Set<Int>> = _favoritedMatchNumbers.asStateFlow()
+
+    private val _notificationPreferences = MutableStateFlow(NotificationPreferences())
+    val notificationPreferences: StateFlow<NotificationPreferences> = _notificationPreferences.asStateFlow()
+
+    private val _notificationHistory = MutableStateFlow<List<MatchAlertEvent>>(emptyList())
+    val notificationHistory: StateFlow<List<MatchAlertEvent>> = _notificationHistory.asStateFlow()
+
+    private val _activeInAppAlert = MutableStateFlow<MatchAlertEvent?>(null)
+    val activeInAppAlert: StateFlow<MatchAlertEvent?> = _activeInAppAlert.asStateFlow()
+
+    private val previousLiveScores = mutableMapOf<Int, MatchLiveScore>()
+
     init {
         // Initial bulletin load & starter coupon
         refreshBulletin(forceRefresh = false)
@@ -100,7 +120,10 @@ class TotoViewModel(
             val timeFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
             while (true) {
                 if (_isLivePolling.value) {
-                    bulletinRepository.pollLiveScores()
+                    val result = bulletinRepository.pollLiveScores()
+                    result.onSuccess { freshList ->
+                        detectAndNotifyMatchEvents(freshList)
+                    }
                     _lastLiveUpdateTime.value = timeFormat.format(Date())
                 }
                 delay(5000L)
@@ -421,11 +444,167 @@ class TotoViewModel(
     fun pollLiveScoresNow() {
         viewModelScope.launch {
             _isRefreshingLiveScores.value = true
-            bulletinRepository.pollLiveScores()
+            val result = bulletinRepository.pollLiveScores()
+            result.onSuccess { freshList ->
+                detectAndNotifyMatchEvents(freshList)
+            }
             val timeFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
             _lastLiveUpdateTime.value = timeFormat.format(Date())
             delay(300)
             _isRefreshingLiveScores.value = false
+        }
+    }
+
+    // --- Push Notifications & Favorited Match Tracking ---
+
+    fun attachNotificationContext(context: Context) {
+        this.appContext = context.applicationContext
+        com.example.notification.MatchNotificationManager.createNotificationChannel(context)
+    }
+
+    fun toggleFavoriteMatch(matchNumber: Int): Boolean {
+        var isNowFav = false
+        _favoritedMatchNumbers.update { current ->
+            if (current.contains(matchNumber)) {
+                isNowFav = false
+                current - matchNumber
+            } else {
+                isNowFav = true
+                current + matchNumber
+            }
+        }
+        return isNowFav
+    }
+
+    fun isMatchFavorited(matchNumber: Int): Boolean {
+        return _favoritedMatchNumbers.value.contains(matchNumber)
+    }
+
+    fun updateNotificationPreferences(prefs: NotificationPreferences) {
+        _notificationPreferences.value = prefs
+    }
+
+    fun markAllAlertsAsRead() {
+        _notificationHistory.update { list -> list.map { it.copy(isRead = true) } }
+    }
+
+    fun clearNotificationHistory() {
+        _notificationHistory.value = emptyList()
+    }
+
+    fun dismissInAppAlert() {
+        _activeInAppAlert.value = null
+    }
+
+    /**
+     * Triggers a live goal push notification simulation so the user can test the push alert immediately.
+     */
+    fun simulateTestGoalAlert(matchNumber: Int = 1) {
+        val targetMatch = liveScores.value.find { it.matchNumber == matchNumber }
+            ?: MatchLiveScore(1, "FRANSA", "TÜRKİYE", homeScore = 1, awayScore = 2, status = MatchStatus.LIVE, minuteText = "78'")
+
+        val event = MatchAlertEvent(
+            matchNumber = targetMatch.matchNumber,
+            homeTeam = targetMatch.homeTeam,
+            awayTeam = targetMatch.awayTeam,
+            eventType = MatchAlertEventType.GOAL_SCORED,
+            scoreDisplay = "1 - 2",
+            minuteText = "78'",
+            scoringTeam = targetMatch.awayTeam,
+            title = "⚽ GOOOOL! ${targetMatch.homeTeam} 1 - 2 ${targetMatch.awayTeam}",
+            message = "78' ${targetMatch.awayTeam} golü attı! Canlı kupon ikramiye durumunu inceleyin."
+        )
+        dispatchMatchAlert(event)
+    }
+
+    /**
+     * Compares incoming live score list with previous state,
+     * detecting match starts, goals, and match completions for favorited matches.
+     */
+    fun detectAndNotifyMatchEvents(newScores: List<MatchLiveScore>) {
+        if (previousLiveScores.isEmpty()) {
+            newScores.forEach { previousLiveScores[it.matchNumber] = it }
+            return
+        }
+
+        val prefs = _notificationPreferences.value
+        val favorites = _favoritedMatchNumbers.value
+
+        for (cur in newScores) {
+            val prev = previousLiveScores[cur.matchNumber]
+            if (prev == null) {
+                previousLiveScores[cur.matchNumber] = cur
+                continue
+            }
+
+            val isFav = favorites.contains(cur.matchNumber)
+            val shouldNotify = if (prefs.notifyOnlyFavorites) isFav else true
+
+            if (shouldNotify) {
+                // 1. Match Start Detection (UPCOMING -> LIVE or HALF_TIME)
+                if (prefs.notifyOnMatchStart && prev.status == MatchStatus.UPCOMING && cur.isLive) {
+                    val event = MatchAlertEvent(
+                        matchNumber = cur.matchNumber,
+                        homeTeam = cur.homeTeam,
+                        awayTeam = cur.awayTeam,
+                        eventType = MatchAlertEventType.MATCH_STARTED,
+                        scoreDisplay = cur.scoreDisplay,
+                        minuteText = cur.minuteText,
+                        title = "📢 Maç Başladı: ${cur.homeTeam} - ${cur.awayTeam}",
+                        message = "${cur.league} maçı başladı! İlk düdük çaldı, kupon durumunu izle."
+                    )
+                    dispatchMatchAlert(event)
+                }
+
+                // 2. Goal Scored Detection
+                if (prefs.notifyOnGoal && cur.isLive) {
+                    val prevHome = prev.homeScore ?: 0
+                    val curHome = cur.homeScore ?: 0
+                    val prevAway = prev.awayScore ?: 0
+                    val curAway = cur.awayScore ?: 0
+
+                    if (curHome > prevHome || curAway > prevAway) {
+                        val scoringTeam = if (curHome > prevHome) cur.homeTeam else cur.awayTeam
+                        val event = MatchAlertEvent(
+                            matchNumber = cur.matchNumber,
+                            homeTeam = cur.homeTeam,
+                            awayTeam = cur.awayTeam,
+                            eventType = MatchAlertEventType.GOAL_SCORED,
+                            scoreDisplay = cur.scoreDisplay,
+                            minuteText = cur.minuteText,
+                            scoringTeam = scoringTeam,
+                            title = "⚽ GOOOOL! ${cur.homeTeam} ${cur.scoreDisplay} ${cur.awayTeam}",
+                            message = "${cur.minuteText} ${scoringTeam} golü kaydetti! Anlık skor: ${cur.scoreDisplay}"
+                        )
+                        dispatchMatchAlert(event)
+                    }
+                }
+
+                // 3. Match Finished Detection
+                if (prefs.notifyOnMatchEnd && prev.status != MatchStatus.FINISHED && cur.status == MatchStatus.FINISHED) {
+                    val event = MatchAlertEvent(
+                        matchNumber = cur.matchNumber,
+                        homeTeam = cur.homeTeam,
+                        awayTeam = cur.awayTeam,
+                        eventType = MatchAlertEventType.MATCH_FINISHED,
+                        scoreDisplay = cur.scoreDisplay,
+                        minuteText = "MS",
+                        title = "🏁 Maç Bitti: ${cur.homeTeam} ${cur.scoreDisplay} ${cur.awayTeam}",
+                        message = "Karşılaşma sona erdi (MS). Kuponundaki garantili durumunu kontrol et."
+                    )
+                    dispatchMatchAlert(event)
+                }
+            }
+
+            previousLiveScores[cur.matchNumber] = cur
+        }
+    }
+
+    private fun dispatchMatchAlert(event: MatchAlertEvent) {
+        _notificationHistory.update { listOf(event) + it.take(49) }
+        _activeInAppAlert.value = event
+        appContext?.let { ctx ->
+            com.example.notification.MatchNotificationManager.sendNotification(ctx, event)
         }
     }
 

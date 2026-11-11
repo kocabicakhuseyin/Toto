@@ -80,8 +80,13 @@ import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
 import com.example.ui.theme.VibrantRed
 
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
+
 private enum class MatchFilterCategory(val label: String) {
     ALL("Tümü (15)"),
+    FAVORITES("⭐ Takiptekiler"),
     LIVE("🔴 Canlı"),
     FINISHED("🏁 Bitenler"),
     UPCOMING("⏳ Başlamayanlar")
@@ -95,6 +100,9 @@ fun MatchResultsScreen(
     isRefreshing: Boolean,
     currentCoupon: Coupon?,
     survivalReport: CouponSurvivalReport,
+    favoritedMatchNumbers: Set<Int> = emptySet(),
+    onToggleFavorite: (Int) -> Unit = {},
+    onOpenNotifications: () -> Unit = {},
     onTogglePolling: () -> Unit,
     onPollNow: () -> Unit,
     onNavigateToCoupons: () -> Unit,
@@ -105,9 +113,11 @@ fun MatchResultsScreen(
     val liveCount = liveScores.count { it.isLive }
     val finishedCount = liveScores.count { it.status == MatchStatus.FINISHED }
     val upcomingCount = liveScores.count { it.status == MatchStatus.UPCOMING }
+    val favCount = liveScores.count { favoritedMatchNumbers.contains(it.matchNumber) }
 
     val filteredMatches = when (selectedFilter) {
         MatchFilterCategory.ALL -> liveScores
+        MatchFilterCategory.FAVORITES -> liveScores.filter { favoritedMatchNumbers.contains(it.matchNumber) }
         MatchFilterCategory.LIVE -> liveScores.filter { it.isLive }
         MatchFilterCategory.FINISHED -> liveScores.filter { it.status == MatchStatus.FINISHED }
         MatchFilterCategory.UPCOMING -> liveScores.filter { it.status == MatchStatus.UPCOMING }
@@ -127,8 +137,10 @@ fun MatchResultsScreen(
                 isPolling = isPolling,
                 lastUpdateTime = lastUpdateTime,
                 isRefreshing = isRefreshing,
+                favoritedCount = favCount,
                 onTogglePolling = onTogglePolling,
-                onPollNow = onPollNow
+                onPollNow = onPollNow,
+                onOpenNotifications = onOpenNotifications
             )
         }
 
@@ -148,6 +160,7 @@ fun MatchResultsScreen(
                 liveCount = liveCount,
                 finishedCount = finishedCount,
                 upcomingCount = upcomingCount,
+                favoritesCount = favCount,
                 onFilterSelected = { selectedFilter = it }
             )
         }
@@ -187,9 +200,13 @@ fun MatchResultsScreen(
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text(
-                            text = "Seçili filtreye uygun maç bulunamadı.",
+                            text = if (selectedFilter == MatchFilterCategory.FAVORITES)
+                                "Henüz takip edilen maç yok. Maç kartlarındaki ⭐ simgesine dokunarak gol ve başlama bildirimlerini açabilirsiniz."
+                            else
+                                "Seçili filtreye uygun maç bulunamadı.",
                             color = TextSecondary,
-                            fontSize = 14.sp
+                            fontSize = 14.sp,
+                            textAlign = TextAlign.Center
                         )
                     }
                 }
@@ -198,7 +215,9 @@ fun MatchResultsScreen(
             items(filteredMatches, key = { it.matchNumber }) { match ->
                 MatchLiveScoreCard(
                     match = match,
-                    currentCoupon = currentCoupon
+                    currentCoupon = currentCoupon,
+                    isFavorited = favoritedMatchNumbers.contains(match.matchNumber),
+                    onToggleFavorite = { onToggleFavorite(match.matchNumber) }
                 )
             }
         }
@@ -210,8 +229,10 @@ private fun LivePollingControlHeader(
     isPolling: Boolean,
     lastUpdateTime: String,
     isRefreshing: Boolean,
+    favoritedCount: Int,
     onTogglePolling: () -> Unit,
-    onPollNow: () -> Unit
+    onPollNow: () -> Unit,
+    onOpenNotifications: () -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -286,32 +307,86 @@ private fun LivePollingControlHeader(
                     }
                 }
 
-                // Manual refresh button
-                IconButton(
-                    onClick = onPollNow,
-                    enabled = !isRefreshing,
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(DarkSurface)
-                        .border(1.dp, DarkCardBorder, RoundedCornerShape(10.dp))
-                        .testTag("btn_refresh_live_scores")
-                ) {
-                    if (isRefreshing) {
-                        CircularProgressIndicator(
-                            color = CasinoGold,
-                            strokeWidth = 2.dp,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    } else {
+                // Header Action Buttons (Notification Settings + Refresh)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    IconButton(
+                        onClick = onOpenNotifications,
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(DarkSurface)
+                            .border(1.dp, CasinoGold.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
+                            .testTag("btn_open_match_notifications")
+                    ) {
                         Icon(
-                            imageVector = Icons.Default.Refresh,
-                            contentDescription = "Yenile",
+                            imageVector = Icons.Default.Notifications,
+                            contentDescription = "Gol ve Maç Bildirim Ayarları",
                             tint = CasinoGold,
                             modifier = Modifier.size(20.dp)
                         )
                     }
+
+                    IconButton(
+                        onClick = onPollNow,
+                        enabled = !isRefreshing,
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(DarkSurface)
+                            .border(1.dp, DarkCardBorder, RoundedCornerShape(10.dp))
+                            .testTag("btn_refresh_live_scores")
+                    ) {
+                        if (isRefreshing) {
+                            CircularProgressIndicator(
+                                color = CasinoGold,
+                                strokeWidth = 2.dp,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "Yenile",
+                                tint = CasinoGold,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
                 }
+            }
+
+            // Notification Settings Banner
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color(0xFF1B2232))
+                    .border(1.dp, CasinoGold.copy(alpha = 0.35f), RoundedCornerShape(8.dp))
+                    .clickable { onOpenNotifications() }
+                    .padding(horizontal = 10.dp, vertical = 7.dp)
+                    .testTag("banner_notification_settings"),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "⭐ Takip & Bildirim:",
+                        color = CasinoGoldLight,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "$favoritedCount maç takipte (Gol & Başlama Uyarısı)",
+                        color = TextSecondary,
+                        fontSize = 11.sp
+                    )
+                }
+                Text(
+                    text = "Ayarla / Test ▶",
+                    color = ElectricCyan,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold
+                )
             }
 
             // Polling Switch & Last Update Info Row
@@ -615,6 +690,7 @@ private fun FilterCategoryChipsRow(
     liveCount: Int,
     finishedCount: Int,
     upcomingCount: Int,
+    favoritesCount: Int,
     onFilterSelected: (MatchFilterCategory) -> Unit
 ) {
     LazyRow(
@@ -628,6 +704,15 @@ private fun FilterCategoryChipsRow(
                 accentColor = CasinoGold,
                 onClick = { onFilterSelected(MatchFilterCategory.ALL) },
                 testTag = "filter_chip_all"
+            )
+        }
+        item {
+            FilterChipItem(
+                label = "⭐ Takiptekiler ($favoritesCount)",
+                isSelected = selectedFilter == MatchFilterCategory.FAVORITES,
+                accentColor = CasinoGoldLight,
+                onClick = { onFilterSelected(MatchFilterCategory.FAVORITES) },
+                testTag = "filter_chip_favorites"
             )
         }
         item {
@@ -694,16 +779,21 @@ private fun FilterChipItem(
 @Composable
 private fun MatchLiveScoreCard(
     match: MatchLiveScore,
-    currentCoupon: Coupon?
+    currentCoupon: Coupon?,
+    isFavorited: Boolean = false,
+    onToggleFavorite: () -> Unit = {}
 ) {
     val isLive = match.isLive
     val isFinished = match.status == MatchStatus.FINISHED
     val isUpcoming = match.status == MatchStatus.UPCOMING
 
     val cardBorderColor = when {
-        isLive -> VibrantRed.copy(alpha = 0.8f)
-        isFinished -> ElectricGreen.copy(alpha = 0.4f)
-        else -> DarkCardBorder
+        isLive && isFavorited -> listOf(VibrantRed, CasinoGold)
+        isLive -> listOf(VibrantRed.copy(alpha = 0.8f), VibrantRed.copy(alpha = 0.8f))
+        isFinished && isFavorited -> listOf(ElectricGreen.copy(alpha = 0.5f), CasinoGold.copy(alpha = 0.4f))
+        isFinished -> listOf(ElectricGreen.copy(alpha = 0.4f), ElectricGreen.copy(alpha = 0.4f))
+        isFavorited -> listOf(CasinoGold.copy(alpha = 0.5f), DarkCardBorder)
+        else -> listOf(DarkCardBorder, DarkCardBorder)
     }
 
     Card(
@@ -713,7 +803,7 @@ private fun MatchLiveScoreCard(
         colors = CardDefaults.cardColors(containerColor = DarkCard),
         shape = RoundedCornerShape(12.dp),
         border = CardDefaults.outlinedCardBorder().copy(
-            brush = Brush.linearGradient(listOf(cardBorderColor, cardBorderColor))
+            brush = Brush.linearGradient(cardBorderColor)
         )
     ) {
         Column(
@@ -722,7 +812,7 @@ private fun MatchLiveScoreCard(
                 .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // Header Row: Match #, League, Status Badge
+            // Header Row: Match #, League, Favorite Toggle, Status Badge
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -751,9 +841,44 @@ private fun MatchLiveScoreCard(
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Medium
                     )
+
+                    Spacer(modifier = Modifier.width(6.dp))
+
+                    // Star Favorite Toggle Button
+                    IconButton(
+                        onClick = onToggleFavorite,
+                        modifier = Modifier
+                            .size(32.dp)
+                            .testTag("btn_fav_match_${match.matchNumber}")
+                    ) {
+                        Icon(
+                            imageVector = if (isFavorited) Icons.Default.Star else Icons.Default.StarBorder,
+                            contentDescription = if (isFavorited) "Takibi Bırak" else "Takip Et & Bildirim Al",
+                            tint = if (isFavorited) CasinoGold else TextMuted,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+
+                    if (isFavorited) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(CasinoGold.copy(alpha = 0.15f))
+                                .border(1.dp, CasinoGold.copy(alpha = 0.4f), RoundedCornerShape(4.dp))
+                                .padding(horizontal = 4.dp, vertical = 1.dp)
+                        ) {
+                            Text(
+                                text = "Takipte",
+                                color = CasinoGoldLight,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
                 }
 
                 // Status Badge
+                Row(verticalAlignment = Alignment.CenterVertically) {
                 when (match.status) {
                     MatchStatus.LIVE -> {
                         Row(
@@ -824,6 +949,7 @@ private fun MatchLiveScoreCard(
                     }
                 }
             }
+        }
 
             // Teams & Scoreboard Row
             Row(
