@@ -130,6 +130,14 @@ fun TotoSelectionMatrixView(
 
             Spacer(modifier = Modifier.height(10.dp))
 
+            Text(
+                text = "15 maçın tamamı için tabloyu sağa kaydırın →",
+                color = ElectricCyan,
+                fontSize = 10.sp,
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = TextAlign.End
+            )
+
             // Scrollable Matrix Grid: Row 2, Row 0, Row 1 across 15 matches + Totals
             Box(
                 modifier = Modifier
@@ -238,15 +246,14 @@ fun TotoSelectionMatrixView(
             Spacer(modifier = Modifier.height(10.dp))
 
             // Bottom Summary Bar: Combinations, Columns & Cost
-            Row(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(8.dp))
                     .background(Color(0xFF0B1322))
                     .border(1.dp, Color(0xFF1E293B), RoundedCornerShape(8.dp))
                     .padding(10.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Column {
                     Text(
@@ -262,7 +269,11 @@ fun TotoSelectionMatrixView(
                     )
                 }
 
-                Column(horizontalAlignment = Alignment.End) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Text(
                         text = "Düz / Formüllü Kolon:",
                         color = TextMuted,
@@ -335,7 +346,7 @@ private fun MatrixOutcomeRow(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = if (isSelected) label else "0",
+                        text = if (isSelected) label else "·",
                     color = if (isSelected) Color.White else Color(0xFF475569),
                     fontWeight = if (isSelected) FontWeight.Black else FontWeight.Normal,
                     fontSize = 13.sp,
