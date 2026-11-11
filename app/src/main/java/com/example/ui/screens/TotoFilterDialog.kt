@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -20,6 +21,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -52,6 +55,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -100,7 +104,10 @@ fun TotoFilterDialog(
         Surface(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(top = 16.dp),
+                // Android 15/16 edge-to-edge dialogs may extend beneath the
+                // navigation bar; keep the fixed action row inside safe bounds.
+                .windowInsetsPadding(WindowInsets.safeDrawing)
+                .padding(top = 6.dp),
             color = DarkBackground,
             shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
         ) {
@@ -120,7 +127,6 @@ fun TotoFilterDialog(
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
@@ -128,8 +134,13 @@ fun TotoFilterDialog(
                             color = Color.White,
                             fontWeight = FontWeight.Black,
                             fontSize = 14.sp,
-                            letterSpacing = 0.5.sp
+                            letterSpacing = 0.5.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
                         )
+
+                        Spacer(modifier = Modifier.width(8.dp))
 
                         Box(
                             modifier = Modifier
@@ -709,14 +720,20 @@ fun TotoFilterDialog(
                                     .height(46.dp)
                                     .testTag("btn_apply_filter_elimination")
                             ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(imageVector = Icons.Default.FilterAlt, contentDescription = null, tint = Color.White)
-                                    Spacer(modifier = Modifier.width(6.dp))
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                     Text(
-                                        text = "Filtreleri Uygula (${previewResult.filteredColumnCount} Kolon)",
+                                        text = "Filtreleri Uygula",
                                         color = Color.White,
                                         fontWeight = FontWeight.Black,
-                                        fontSize = 12.5.sp
+                                        fontSize = 12.sp,
+                                        maxLines = 1
+                                    )
+                                    Text(
+                                        text = "${previewResult.filteredColumnCount} kolon",
+                                        color = Color.White,
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontSize = 10.sp,
+                                        maxLines = 1
                                     )
                                 }
                             }
@@ -857,68 +874,19 @@ private fun FilterNumberCard(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Number Tiles Grid (matching exact 2-row layout from original app)
-            if (availableNumbers == listOf(0, 1, 2, 3, 4, 5, 6)) {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        listOf(0, 1, 2, 3, 4, 5).forEach { num ->
-                            CircleNumberButton(
-                                number = num,
-                                isSelected = selectedNumbers.contains(num),
-                                onClick = { onToggleNumber(num) }
-                            )
-                        }
-                    }
+            // Wrap on narrow phones and large font sizes: fixed rows could
+            // overflow horizontally and hide the last numerical choices.
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                availableNumbers.forEach { num ->
                     CircleNumberButton(
-                        number = 6,
-                        isSelected = selectedNumbers.contains(6),
-                        onClick = { onToggleNumber(6) }
+                        number = num,
+                        isSelected = selectedNumbers.contains(num),
+                        onClick = { onToggleNumber(num) }
                     )
-                }
-            } else if (availableNumbers == listOf(7, 8, 9, 10, 11, 12, 13, 14)) {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        listOf(7, 8, 9, 10, 11, 12, 13).forEach { num ->
-                            CircleNumberButton(
-                                number = num,
-                                isSelected = selectedNumbers.contains(num),
-                                onClick = { onToggleNumber(num) }
-                            )
-                        }
-                    }
-                    CircleNumberButton(
-                        number = 14,
-                        isSelected = selectedNumbers.contains(14),
-                        onClick = { onToggleNumber(14) }
-                    )
-                }
-            } else {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    availableNumbers.forEach { num ->
-                        CircleNumberButton(
-                            number = num,
-                            isSelected = selectedNumbers.contains(num),
-                            onClick = { onToggleNumber(num) }
-                        )
-                    }
                 }
             }
 
