@@ -308,4 +308,91 @@ class TotoFilterEngineTest {
         assertTrue(result.columns.isEmpty())
     }
 
+
+    @Test
+    fun testRepeatedFilteringNeverExpandsCurrentCoupon() {
+        val viewModel = com.example.viewmodel.TotoViewModel()
+        viewModel.setTargetColumnCap(com.example.engine.FormulaEngine.UNLIMITED_COLUMNS_CAP)
+
+        // Four user-selected doubles produce 16 full 15-match columns.
+        for (id in 1..4) {
+            viewModel.togglePrediction(id, PredictionOutcome.HOME)
+            viewModel.togglePrediction(id, PredictionOutcome.DRAW)
+        }
+        val generated = viewModel.generateCoupon(
+            com.example.model.FormulaType.GUARANTEE_15
+        )
+        assertEquals(16, generated.totalColumns)
+
+        val narrowed = viewModel.applyFiltersAndEliminate(
+            TotoFilterCriteria(allowedTotalDraws = setOf(2))
+        )
+        assertEquals(6, narrowed.totalColumns)
+
+        // Resetting filter criteria does not quietly regenerate the 16
+        // original combinations or add back any of the 10 rejected columns.
+        val repeated = viewModel.applyFiltersAndEliminate(TotoFilterCriteria())
+        assertEquals(6, repeated.totalColumns)
+        assertEquals(narrowed.columns.map { it.asString }.toSet(),
+            repeated.columns.map { it.asString }.toSet())
+    }
+
+    @Test
+    fun testChangingMatchSelectionsStartsAFreshMatrix() {
+        val viewModel = com.example.viewmodel.TotoViewModel()
+        viewModel.setTargetColumnCap(com.example.engine.FormulaEngine.UNLIMITED_COLUMNS_CAP)
+        for (id in 1..3) {
+            viewModel.togglePrediction(id, PredictionOutcome.HOME)
+            viewModel.togglePrediction(id, PredictionOutcome.DRAW)
+        }
+        assertEquals(8, viewModel.generateCoupon(
+            com.example.model.FormulaType.GUARANTEE_15
+        ).totalColumns)
+
+        // A changed selection invalidates the previously generated coupon.
+        viewModel.togglePrediction(1, PredictionOutcome.AWAY)
+        assertEquals(null, viewModel.currentFilterSourceColumns())
+        val refreshed = viewModel.applyFiltersAndEliminate(TotoFilterCriteria())
+        assertEquals(12, refreshed.totalColumns)
+    }
+
+    @Test
+    fun testFlexibleModeWithOneActiveFilterCannotAcceptItsFailures() {
+        val allHome = TotoColumn(1, List(15) { PredictionOutcome.HOME })
+        val criteria = TotoFilterCriteria(
+            applicationMode = FilterApplicationMode.GUARANTEE_FLEXIBLE,
+            allowedTotalDraws = setOf(3)
+        )
+        assertFalse(TotoFilterEngine.evaluateColumn(allHome, criteria, testMatches))
+        assertTrue(TotoFilterEngine.evaluateColumn(
+            allHome, criteria.copy(allowedTotalDraws = setOf(0)), testMatches
+        ))
+    }
+
+    @Test
+    fun testExistingMatrixSubsetRemainsSubsetAfterEveryFilter() {
+        val fixed = testMatches.mapIndexed { index, m ->
+            m.copy(selections = if (index < 5)
+                setOf(PredictionOutcome.HOME, PredictionOutcome.DRAW)
+            else setOf(PredictionOutcome.HOME))
+        }
+        val original = com.example.engine.FormulaEngine.generateAllCombinations(fixed, 1000)
+        val first = TotoFilterEngine.filterSelectedMatrix(
+            fixed,
+            TotoFilterCriteria(allowedTotalDraws = setOf(1, 2)),
+            maxColumnsCap = com.example.engine.FormulaEngine.UNLIMITED_COLUMNS_CAP,
+            sourceColumns = original
+        )
+        val second = TotoFilterEngine.filterSelectedMatrix(
+            fixed,
+            TotoFilterCriteria(allowedTotalDraws = setOf(0, 1, 2, 3, 4, 5)),
+            maxColumnsCap = com.example.engine.FormulaEngine.UNLIMITED_COLUMNS_CAP,
+            sourceColumns = first.columns
+        )
+        assertEquals(32, first.initialColumnCount)
+        assertEquals(first.savedColumnCount, second.initialColumnCount)
+        assertEquals(first.savedColumnCount, second.savedColumnCount)
+        assertTrue(second.columns.all { it.asString in first.columns.map { c -> c.asString }.toSet() })
+    }
+
 }
