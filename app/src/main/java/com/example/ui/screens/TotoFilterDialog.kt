@@ -68,6 +68,7 @@ import com.example.engine.MatrixFilterResult
 import com.example.engine.TotoFilterEngine
 import com.example.model.FilterApplicationMode
 import com.example.model.TotoFilterCriteria
+import com.example.model.TotoColumn
 import com.example.model.TotoMatch
 import com.example.ui.theme.CasinoGold
 import com.example.ui.theme.DarkBackground
@@ -94,6 +95,7 @@ fun TotoFilterDialog(
     initialCriteria: TotoFilterCriteria,
     matches: List<TotoMatch>,
     targetColumnCap: Int?,
+    sourceColumns: List<TotoColumn>? = null,
     onDismiss: () -> Unit,
     onApplyFilters: (TotoFilterCriteria, MatrixFilterResult) -> Unit
 ) {
@@ -104,7 +106,7 @@ fun TotoFilterDialog(
     // the previous preview; the accepted result is reused when the user applies it.
     val matrixResult by produceState<MatrixFilterResult?>(
         initialValue = null,
-        criteria, matches, targetColumnCap
+        criteria, matches, targetColumnCap, sourceColumns
     ) {
         delay(120)
         val previewJob = currentCoroutineContext()
@@ -113,6 +115,7 @@ fun TotoFilterDialog(
                 matches = matches,
                 criteria = criteria,
                 maxColumnsCap = targetColumnCap,
+                sourceColumns = sourceColumns,
                 shouldCancel = { !previewJob.isActive }
             )
         }
@@ -374,7 +377,7 @@ fun TotoFilterDialog(
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = "İhtimalli modda bütün filtreler zorunludur. Esnek modda 1 filtre koşuluna uymayan kolonlar da tutulabilir.",
+                                    text = "İhtimalli: bütün filtreler zorunlu. Esnek: en az bir koşul geçmeli; en fazla 1 koşul ihlali tolere edilir.",
                                     color = TextSecondary,
                                     fontSize = 11.5.sp,
                                     fontWeight = FontWeight.Medium
@@ -679,6 +682,14 @@ fun TotoFilterDialog(
                             .padding(bottom = 8.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
+                        Text(
+                            text = if (sourceColumns == null)
+                                "Kaynak: seçili maçların tam matrisi"
+                            else "Kaynak: mevcut kupon • ${sourceColumns.size} kolon",
+                            color = ElectricCyan,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 11.sp
+                        )
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
