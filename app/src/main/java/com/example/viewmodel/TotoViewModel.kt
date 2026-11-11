@@ -147,18 +147,23 @@ class TotoViewModel(
     }
 
     fun refreshBulletin(forceRefresh: Boolean = true) {
+        // Ignore repeated taps while a bulletin request is already running.
+        if (_isRefreshingBulletin.value) return
+        _isRefreshingBulletin.value = true
         viewModelScope.launch {
-            _isRefreshingBulletin.value = true
-            val result = bulletinRepository.getDomainMatches(forceRefresh)
-            result.onSuccess { freshMatches ->
-                if (freshMatches.isNotEmpty()) {
-                    _matches.value = freshMatches
-                    _bulletinMessage.value = "Haftalık bülten ve canlı oranlar güncellendi!"
+            try {
+                val result = bulletinRepository.getDomainMatches(forceRefresh)
+                result.onSuccess { freshMatches ->
+                    if (freshMatches.isNotEmpty()) {
+                        _matches.value = freshMatches
+                        _bulletinMessage.value = "Haftalık bülten ve canlı oranlar güncellendi!"
+                    }
+                }.onFailure {
+                    _bulletinMessage.value = "Bülten güncellenemedi, yerel veriler kullanılıyor."
                 }
-            }.onFailure {
-                _bulletinMessage.value = "Bülten güncellenemedi, yerel veriler kullanılıyor."
+            } finally {
+                _isRefreshingBulletin.value = false
             }
-            _isRefreshingBulletin.value = false
         }
     }
 
@@ -213,7 +218,7 @@ class TotoViewModel(
                 match.copy(selections = set)
             }
         }
-        generateCoupon(_selectedFormula.value, "1-15 Tam Dağıtımlı Garantili Kupon")
+        // Only update match selections; generating a matrix is a separate user action.
     }
 
     fun applyQuickDoubles10To15() {
@@ -244,7 +249,7 @@ class TotoViewModel(
                 }
             }
         }
-        generateCoupon(_selectedFormula.value, "10-15 Avrupa Özel Garantili Kupon")
+        // Avoid expensive automatic coupon generation after a preset selection.
     }
 
     fun applyQuickDoubles1To9() {
@@ -274,7 +279,7 @@ class TotoViewModel(
                 }
             }
         }
-        generateCoupon(_selectedFormula.value, "1-9 Süper Lig Özel Garantili Kupon")
+        // The Formüller action generates the coupon when requested.
     }
 
     fun clearAllSelections() {
