@@ -97,6 +97,22 @@ object NetworkModule {
             .create(ApiFootballLiveService::class.java)
     }
 
+    // A documented, public JSON feed; keep separate from the bulletin's
+    // offline interceptor so an outage cannot produce fabricated scores.
+    val scoreCardsService: ScoreCardsLiveService by lazy {
+        Retrofit.Builder()
+            .baseUrl("https://scorecards.in/")
+            .client(
+                OkHttpClient.Builder()
+                    .connectTimeout(10, TimeUnit.SECONDS)
+                    .readTimeout(15, TimeUnit.SECONDS)
+                    .build()
+            )
+            .addConverterFactory(MoshiConverterFactory.create(moshi))
+            .build()
+            .create(ScoreCardsLiveService::class.java)
+    }
+
     /**
      * Generates a complete 15-match weekly bulletin with teams, dates, and live betting odds.
      */

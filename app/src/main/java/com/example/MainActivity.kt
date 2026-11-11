@@ -98,6 +98,7 @@ fun MainAppContent() {
     val targetColumnCap by viewModel.targetColumnCap.collectAsStateWithLifecycle()
 
     val liveScores by viewModel.liveScores.collectAsStateWithLifecycle()
+    val liveScoreProvider by viewModel.liveScoreProvider.collectAsStateWithLifecycle()
     val lastLiveUpdateTime by viewModel.lastLiveUpdateTime.collectAsStateWithLifecycle()
     val isRefreshingLiveScores by viewModel.isRefreshingLiveScores.collectAsStateWithLifecycle()
 
@@ -198,6 +199,7 @@ fun MainAppContent() {
                 AppNavTab.RESULTS -> {
                     MatchResultsScreen(
                         liveScores = liveScores,
+                        providerName = liveScoreProvider,
                         lastUpdateTime = lastLiveUpdateTime,
                         isRefreshing = isRefreshingLiveScores,
                         errorMessage = liveScoreError,

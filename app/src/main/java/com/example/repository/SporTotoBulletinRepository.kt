@@ -5,11 +5,16 @@ import com.example.model.MatchLiveScore
 import com.example.model.MatchStatus
 import com.example.model.TotoMatch
 import com.example.network.NetworkModule
+import com.example.network.ScoreCardsLiveService
 import com.example.network.SporTotoApiService
 import com.example.network.model.BulletinMatchDto
 import com.example.network.model.WeeklyBulletinResponse
 import com.example.network.model.toDomainTotoMatch
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -21,6 +26,7 @@ import kotlinx.coroutines.withContext
 interface SporTotoBulletinRepository {
     val cachedBulletin: StateFlow<WeeklyBulletinResponse?>
     val liveScores: StateFlow<List<MatchLiveScore>>
+    val liveScoreProvider: StateFlow<String>
 
     /**
      * Fetches current weekly bulletin from external API (or returns cached if available).
@@ -54,7 +60,9 @@ interface SporTotoBulletinRepository {
 class SporTotoBulletinRepositoryImpl(
     private val apiService: SporTotoApiService = NetworkModule.apiService,
     private val liveScoreService: com.example.network.ApiFootballLiveService = NetworkModule.liveScoreService,
-    private val liveScoreApiKey: String = BuildConfig.API_FOOTBALL_KEY
+    private val liveScoreApiKey: String = BuildConfig.API_FOOTBALL_KEY,
+    private val scoreCardsService: ScoreCardsLiveService = NetworkModule.scoreCardsService,
+    private val trackedLeagueIds: List<Int> = listOf(5, 39, 140, 135, 1)
 ) : SporTotoBulletinRepository {
 
     private val _cachedBulletin = MutableStateFlow<WeeklyBulletinResponse?>(null)
@@ -63,14 +71,61 @@ class SporTotoBulletinRepositoryImpl(
     private val _liveScores = MutableStateFlow<List<MatchLiveScore>>(emptyList())
     override val liveScores: StateFlow<List<MatchLiveScore>> = _liveScores.asStateFlow()
 
+    private val _liveScoreProvider = MutableStateFlow("ScoreCards")
+    override val liveScoreProvider: StateFlow<String> = _liveScoreProvider.asStateFlow()
+
     override suspend fun pollLiveScores(): Result<List<MatchLiveScore>> =
         withContext(Dispatchers.IO) {
+            // Keyless provider first. Its API permits Android apps if the
+            // results screen displays the required ScoreCards attribution.
+            // Only tracked leagues are requested; unavailable leagues are not
+            // silently filled with demo/fallback fixtures.
+            try {
+                val widgets = coroutineScope {
+                    trackedLeagueIds.distinct().map { leagueId ->
+                        async {
+                            try {
+                                val response = scoreCardsService.getLeague(leagueId)
+                                response.body()?.takeIf {
+                                    response.isSuccessful && it.success &&
+                                        (it.cacheAgeSeconds == null || it.cacheAgeSeconds <= 300)
+                                }
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (_: Exception) {
+                                null
+                            }
+                        }
+                    }.awaitAll()
+                }.filterNotNull()
+
+                if (widgets.isNotEmpty()) {
+                    val actualScores = widgets.flatMap { widget ->
+                        (widget.live + widget.recentlyFinished).mapNotNull { match ->
+                            match.asLiveScore(widget.league?.name.orEmpty())
+                        }
+                    }.distinctBy { it.matchNumber }
+                        .sortedWith(compareByDescending<MatchLiveScore> { it.isLive }
+                            .thenByDescending { it.matchDate })
+
+                    _liveScoreProvider.value = "ScoreCards"
+                    _liveScores.value = actualScores
+                    // Empty means no verified live/recent games, not a failure.
+                    return@withContext Result.success(actualScores)
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // If available, the authenticated provider is tried below.
+            }
+
             if (liveScoreApiKey.isBlank()) {
                 _liveScores.value = emptyList()
-                return@withContext Result.failure(
-                    IllegalStateException("Canlı skor servisi henüz etkinleştirilmedi.")
-                )
+                return@withContext Result.failure(IllegalStateException(
+                    "Canlı skor kaynağına ulaşılamıyor; bağlantıyı kontrol edip yeniden deneyin."
+                ))
             }
+
             try {
                 val response = liveScoreService.getLiveFixtures(liveScoreApiKey)
                 val body = response.body()
@@ -111,8 +166,11 @@ class SporTotoBulletinRepositoryImpl(
                         league = item.league?.name.orEmpty()
                     )
                 }
+                _liveScoreProvider.value = "API-FOOTBALL"
                 _liveScores.value = actualScores
                 Result.success(actualScores)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (_: Exception) {
                 _liveScores.value = emptyList()
                 Result.failure(IllegalStateException("Canlı skor verisi alınamadı. Ağ bağlantısını kontrol edin."))

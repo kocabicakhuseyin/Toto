@@ -49,11 +49,12 @@ import com.example.ui.theme.VibrantRed
 
 /**
  * Simple verified scoreboard. No notifications, predictions, odds or invented
- * fixture minutes are shown. Only API-FOOTBALL responses can populate cards.
+ * fixture minutes are shown. Only verified provider responses populate cards.
  */
 @Composable
 fun MatchResultsScreen(
     liveScores: List<MatchLiveScore>,
+    providerName: String,
     lastUpdateTime: String,
     isRefreshing: Boolean,
     errorMessage: String?,
@@ -85,7 +86,7 @@ fun MatchResultsScreen(
                             fontSize = 19.sp
                         )
                         Text(
-                            "API-FOOTBALL • Ekran açıkken 60 sn yenileme",
+                            "$providerName • Ekran açıkken 60 sn yenileme",
                             color = TextSecondary,
                             fontSize = 10.sp
                         )
@@ -114,6 +115,18 @@ fun MatchResultsScreen(
             }
         }
 
+        if (providerName == "ScoreCards") {
+            item {
+                Text(
+                    "Live scores powered by ScoreCards (scorecards.in)",
+                    modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+                    color = TextSecondary,
+                    textAlign = TextAlign.Center,
+                    fontSize = 11.sp
+                )
+            }
+        }
+
         if (errorMessage != null || liveScores.isEmpty()) {
             item {
                 Card(
@@ -121,7 +134,7 @@ fun MatchResultsScreen(
                     colors = CardDefaults.cardColors(containerColor = DarkCard)
                 ) {
                     Text(
-                        text = errorMessage ?: "Şu anda doğrulanmış canlı karşılaşma bulunamadı.",
+                        text = errorMessage ?: "Şu anda desteklenen liglerde canlı karşılaşma veya yeni bitmiş maç bulunamadı.",
                         modifier = Modifier.padding(20.dp),
                         color = if (errorMessage != null) Color(0xFFFFB4A9) else TextSecondary,
                         textAlign = TextAlign.Center,

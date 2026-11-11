@@ -1,5 +1,6 @@
 package com.example.viewmodel
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.engine.FormulaEngine
@@ -77,6 +78,7 @@ class TotoViewModel(
     val filterCriteria: StateFlow<com.example.model.TotoFilterCriteria> = _filterCriteria.asStateFlow()
 
     val liveScores: StateFlow<List<MatchLiveScore>> = bulletinRepository.liveScores
+    val liveScoreProvider: StateFlow<String> = bulletinRepository.liveScoreProvider
 
     private val _isLivePolling = MutableStateFlow(false)
     val isLivePolling: StateFlow<Boolean> = _isLivePolling.asStateFlow()
