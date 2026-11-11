@@ -174,6 +174,16 @@ fun CouponsScreen(
                         Text("Bültene Git & Kupon Yap", color = Color.Black, fontWeight = FontWeight.Black)
                     }
                     Spacer(modifier = Modifier.height(8.dp))
+                    Button(
+                        onClick = onOpenWizard,
+                        colors = ButtonDefaults.buttonColors(containerColor = ElectricGreen),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("btn_empty_create_coupon")
+                    ) {
+                        Text("Yeni Kupon Oluştur", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
                     Button(onClick = onOpenPool, modifier = Modifier.testTag("btn_open_coupon_pool")) {
                         Text("Canlı Kupon Havuzunu Gör")
                     }
@@ -193,6 +203,76 @@ fun CouponsScreen(
             .padding(horizontal = 12.dp, vertical = 6.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
+        // Primary actions remain visible at the top instead of being hidden
+        // among advanced quick actions further down the coupon page.
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = DarkCard),
+                shape = RoundedCornerShape(12.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, DarkCardBorder),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Kupon Oluştur ve Kaydet", color = TextPrimary,
+                            fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Text("${activeCoupon.totalColumns} kolon", color = ElectricGreen,
+                            fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = onOpenWizard,
+                            colors = ButtonDefaults.buttonColors(containerColor = CasinoGold),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(52.dp)
+                                .testTag("btn_create_coupon_visible")
+                        ) {
+                            Text(
+                                "Yeni Kupon Oluştur",
+                                color = Color.Black,
+                                fontSize = 12.sp,
+                                lineHeight = 15.sp,
+                                textAlign = TextAlign.Center,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 2
+                            )
+                        }
+                        Button(
+                            onClick = { onSaveCouponToJson(activeCoupon) },
+                            enabled = activeCoupon.totalColumns > 0,
+                            colors = ButtonDefaults.buttonColors(containerColor = ElectricGreen),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(52.dp)
+                                .testTag("btn_save_coupon_visible")
+                        ) {
+                            Text(
+                                "Kuponu Kaydet",
+                                color = Color.White,
+                                fontSize = 12.sp,
+                                lineHeight = 15.sp,
+                                textAlign = TextAlign.Center,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
         // Horizontal Saved Coupons Selector Bar
         item {
             Card(
@@ -203,7 +283,7 @@ fun CouponsScreen(
             ) {
                 Column(modifier = Modifier.padding(vertical = 8.dp)) {
                     Text(
-                        text = "Kayıtlı Kuponlarınız (${coupons.size}):",
+                        text = "Oluşturulan Kuponlar (${coupons.size}):",
                         fontWeight = FontWeight.Bold,
                         fontSize = 11.sp,
                         color = TextMuted,
@@ -569,35 +649,15 @@ fun CouponsScreen(
                     )
                 }
 
-                // Row 3: JSON Storage Actions (Kaydet & Aç)
-                Row(
+                // Stored coupons remain accessible, while the Save action is at the top.
+                CompactActionButton(
+                    icon = Icons.Default.FolderOpen,
+                    title = "Kayıtlı JSON Kuponları Aç",
+                    badge = "Cihazdaki Kayıtlar",
+                    accentColor = CasinoGold,
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    // Cihaza JSON Kaydet
-                    CompactActionButton(
-                        icon = Icons.Default.Save,
-                        title = "Cihaza JSON Kaydet",
-                        badge = "Yerel Yedek 💾",
-                        accentColor = ElectricCyan,
-                        modifier = Modifier.weight(1f),
-                        onClick = {
-                            onSaveCouponToJson(activeCoupon)
-                        }
-                    )
-
-                    // Kayıtlı JSON Aç
-                    CompactActionButton(
-                        icon = Icons.Default.FolderOpen,
-                        title = "Kayıtlı JSON Aç",
-                        badge = "Dosyalar 📂",
-                        accentColor = CasinoGold,
-                        modifier = Modifier.weight(1f),
-                        onClick = {
-                            showSavedJsonDialog = true
-                        }
-                    )
-                }
+                    onClick = { showSavedJsonDialog = true }
+                )
 
                 // Benzer Kolonları Sil
                 CleanDuplicatesBanner(
