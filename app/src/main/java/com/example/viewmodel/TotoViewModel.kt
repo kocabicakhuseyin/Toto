@@ -327,68 +327,49 @@ class TotoViewModel(
     }
 
     /**
-     * Applies filter criteria to candidate columns,
-     * eliminating non-matching columns and saving a new filtered coupon.
+     * Applies filters to the complete set of user-selected matrix combinations.
+     * Precomputed results from the background preview are reused without rescanning.
+     * A column limit is applied only AFTER checking all selected combinations.
      */
     fun applyFiltersAndEliminate(
         criteria: com.example.model.TotoFilterCriteria,
-        customTitle: String? = null
+        customTitle: String? = null,
+        precomputedMatrix: com.example.engine.MatrixFilterResult? = null
     ): Coupon {
         _filterCriteria.value = criteria
-        val effectiveCap = _targetColumnCap.value
-        val isUnlimited = effectiveCap == FormulaEngine.UNLIMITED_COLUMNS_CAP
-        val hasVariables = _matches.value.any { it.selections.size > 1 }
+        val result = precomputedMatrix ?: com.example.engine.TotoFilterEngine.filterSelectedMatrix(
+            matches = _matches.value,
+            criteria = criteria,
+            maxColumnsCap = _targetColumnCap.value
+        )
 
-        val sourceColumns = if (hasVariables) {
-            if (isUnlimited) {
-                FormulaEngine.generateAllCombinations(_matches.value, limit = 65536)
-            } else {
-                FormulaEngine.generateColumns(_matches.value, _selectedFormula.value, maxColumnsCap = effectiveCap)
-            }
-        } else {
-            val current = _currentCoupon.value
-            if (current != null && current.columns.size > 1) current.columns
-            else {
-                if (isUnlimited) FormulaEngine.generateAllCombinations(_matches.value, limit = 65536)
-                else FormulaEngine.generateColumns(_matches.value, _selectedFormula.value, maxColumnsCap = effectiveCap)
-            }
-        }
-
-        val filteredCols = if (criteria.isActive) {
-            com.example.engine.TotoFilterEngine.filterColumns(
-                columns = sourceColumns,
-                criteria = criteria,
-                matches = _matches.value
+        if (result.isTooLarge) {
+            _bulletinMessage.value =
+                "Matris çok büyük (${result.initialColumnCount} kolon). " +
+                "Doğru eleme için seçimleri ${com.example.engine.TotoFilterEngine.MAX_EXACT_MATRIX_COMBINATIONS} kolona indirin."
+            return _currentCoupon.value ?: Coupon(
+                id = "empty_filter", title = "Filtreleme uygulanamadı",
+                formulaType = _selectedFormula.value, columns = emptyList()
             )
-        } else {
-            sourceColumns
         }
 
-        val beforeCount = sourceColumns.size
-        val afterCount = filteredCols.size
-        val savings = if (beforeCount > 0) ((beforeCount - afterCount) * 100) / beforeCount else 0
+        val savings = if (result.initialColumnCount > 0) {
+            ((result.initialColumnCount - result.matchingColumnCount) * 100) / result.initialColumnCount
+        } else 0
 
-        val modeLabel = if (criteria.applicationMode == com.example.model.FilterApplicationMode.PROBABILITY_STRICT) "İhtimalli" else "Garantili"
-        val title = customTitle ?: "Garantili Filtreli Kupon ($modeLabel - %$savings Tasarruf)"
+        val modeLabel = if (
+            criteria.applicationMode == com.example.model.FilterApplicationMode.PROBABILITY_STRICT
+        ) "Tüm koşullar" else "Esnek (1 koşul toleransı)"
+        val limitInfo = if (result.isLimitedByCap) " • Kupon limiti: ${result.savedColumnCount}" else ""
+        val title = customTitle ?: "Matris Eleme ($modeLabel • %$savings Eleme$limitInfo)"
 
-        val safeCols = when {
-            filteredCols.isNotEmpty() -> {
-                if (isUnlimited) filteredCols
-                else if (effectiveCap != null && effectiveCap > 0) filteredCols.take(effectiveCap)
-                else filteredCols
-            }
-            sourceColumns.size > 1 -> {
-                if (isUnlimited) sourceColumns.take(minOf(64, sourceColumns.size))
-                else sourceColumns.take(minOf(6, sourceColumns.size))
-            }
-            else -> sourceColumns
-        }
-
+        // If no column passes, keep the empty result. Rejected columns must NEVER
+        // be silently reintroduced to make a nonempty coupon.
         val newCoupon = Coupon(
             id = "filtered_${System.currentTimeMillis()}",
             title = title,
             formulaType = _selectedFormula.value,
-            columns = safeCols
+            columns = result.columns
         )
 
         _coupons.update { listOf(newCoupon) + it }
