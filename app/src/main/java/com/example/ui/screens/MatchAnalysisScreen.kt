@@ -292,7 +292,27 @@ fun MatchAnalysisScreen(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(7.dp))
+
+                Button(
+                    onClick = onGenerateCoupon,
+                    colors = ButtonDefaults.buttonColors(containerColor = CasinoGold),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(44.dp)
+                        .testTag("btn_generate_coupon_direct")
+                ) {
+                    Text(
+                        text = "Seçimlerden Kupon Oluştur",
+                        color = Color.Black,
+                        fontWeight = FontWeight.Black,
+                        fontSize = 12.sp,
+                        maxLines = 1
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(5.dp))
 
                 Column(
                     modifier = Modifier.fillMaxWidth(),
