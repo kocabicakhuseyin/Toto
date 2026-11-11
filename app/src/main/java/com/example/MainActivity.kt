@@ -42,7 +42,6 @@ import com.example.ui.screens.TotoFilterDialog
 import com.example.ui.screens.TxtImportDialog
 import com.example.ui.theme.MyApplicationTheme
 import com.example.viewmodel.TotoViewModel
-import com.example.engine.FormulaEngine
 
 import androidx.compose.ui.platform.LocalContext
 import com.example.data.local.AppDatabase
@@ -123,7 +122,6 @@ fun MainAppContent(incomingNesineUrl: String? = null, onNesineUrlHandled: () -> 
     val userProfile by viewModel.userProfile.collectAsStateWithLifecycle()
     val isRefreshingBulletin by viewModel.isRefreshingBulletin.collectAsStateWithLifecycle()
     val filterCriteria by viewModel.filterCriteria.collectAsStateWithLifecycle()
-    val selectedFormula by viewModel.selectedFormula.collectAsStateWithLifecycle()
     val targetColumnCap by viewModel.targetColumnCap.collectAsStateWithLifecycle()
 
     val liveScores by viewModel.liveScores.collectAsStateWithLifecycle()
@@ -380,29 +378,16 @@ fun MainAppContent(incomingNesineUrl: String? = null, onNesineUrlHandled: () -> 
     }
 
     if (showFilterDialog) {
-        val hasVariables = matches.any { it.selections.size > 1 }
-        val isUnlimited = targetColumnCap == FormulaEngine.UNLIMITED_COLUMNS_CAP
-        val candidateCols = if (hasVariables) {
-            if (isUnlimited) {
-                FormulaEngine.generateAllCombinations(matches, limit = 65536)
-            } else {
-                FormulaEngine.generateColumns(matches, selectedFormula, maxColumnsCap = targetColumnCap)
-            }
-        } else {
-            val cur = currentCoupon?.columns
-            if (cur != null && cur.size > 1) cur
-            else {
-                if (isUnlimited) FormulaEngine.generateAllCombinations(matches, limit = 65536)
-                else FormulaEngine.generateColumns(matches, selectedFormula, maxColumnsCap = targetColumnCap)
-            }
-        }
         TotoFilterDialog(
             initialCriteria = filterCriteria,
             matches = matches,
-            candidateColumns = candidateCols,
+            targetColumnCap = targetColumnCap,
             onDismiss = { showFilterDialog = false },
-            onApplyFilters = { criteria ->
-                viewModel.applyFiltersAndEliminate(criteria)
+            onApplyFilters = { criteria, matrixResult ->
+                viewModel.applyFiltersAndEliminate(
+                    criteria = criteria,
+                    precomputedMatrix = matrixResult
+                )
                 currentTab = AppNavTab.COUPONS
             }
         )
