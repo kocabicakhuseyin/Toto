@@ -1,5 +1,6 @@
 package com.example.repository
 
+import com.example.BuildConfig
 import com.example.model.MatchLiveScore
 import com.example.model.MatchStatus
 import com.example.model.TotoMatch
@@ -51,82 +52,72 @@ interface SporTotoBulletinRepository {
  * Concrete implementation of SporTotoBulletinRepository utilizing Retrofit.
  */
 class SporTotoBulletinRepositoryImpl(
-    private val apiService: SporTotoApiService = NetworkModule.apiService
+    private val apiService: SporTotoApiService = NetworkModule.apiService,
+    private val liveScoreService: com.example.network.ApiFootballLiveService = NetworkModule.liveScoreService,
+    private val liveScoreApiKey: String = BuildConfig.API_FOOTBALL_KEY
 ) : SporTotoBulletinRepository {
 
     private val _cachedBulletin = MutableStateFlow<WeeklyBulletinResponse?>(null)
     override val cachedBulletin: StateFlow<WeeklyBulletinResponse?> = _cachedBulletin.asStateFlow()
 
-    private val _liveScores = MutableStateFlow<List<MatchLiveScore>>(createInitialLiveScores())
+    private val _liveScores = MutableStateFlow<List<MatchLiveScore>>(emptyList())
     override val liveScores: StateFlow<List<MatchLiveScore>> = _liveScores.asStateFlow()
-
-    private var pollIteration = 0
 
     override suspend fun pollLiveScores(): Result<List<MatchLiveScore>> =
         withContext(Dispatchers.IO) {
-            pollIteration++
-            val currentList = _liveScores.value.toMutableList()
-            val updated = currentList.map { match ->
-                when (match.status) {
-                    MatchStatus.LIVE -> {
-                        val currentMin = match.minuteText.replace("'", "").toIntOrNull() ?: 60
-                        val newMin = (currentMin + 1).coerceAtMost(90)
-                        val status = if (newMin >= 90) MatchStatus.FINISHED else MatchStatus.LIVE
-                        val minText = if (status == MatchStatus.FINISHED) "MS" else "$newMin'"
-
-                        var hScore = match.homeScore ?: 0
-                        var aScore = match.awayScore ?: 0
-                        // Real-time simulated goal progression every few poll cycles
-                        if (pollIteration % 4 == 0 && match.matchNumber in listOf(1, 4, 7)) {
-                            if (match.matchNumber == 1) aScore++ // Türkiye scores!
-                            else hScore++
-                        }
-
-                        match.copy(
-                            homeScore = hScore,
-                            awayScore = aScore,
-                            minuteText = minText,
-                            status = status
-                        )
-                    }
-                    MatchStatus.HALF_TIME -> {
-                        if (pollIteration % 2 == 0) {
-                            match.copy(status = MatchStatus.LIVE, minuteText = "46'")
-                        } else match
-                    }
-                    MatchStatus.UPCOMING -> {
-                        if (pollIteration >= 3 && match.matchNumber == 9) {
-                            match.copy(status = MatchStatus.LIVE, minuteText = "1'", homeScore = 0, awayScore = 0)
-                        } else match
-                    }
-                    MatchStatus.FINISHED -> {
-                        match
-                    }
-                }
+            if (liveScoreApiKey.isBlank()) {
+                _liveScores.value = emptyList()
+                return@withContext Result.failure(
+                    IllegalStateException("Canlı skor servisi henüz etkinleştirilmedi.")
+                )
             }
-            _liveScores.value = updated
-            Result.success(updated)
+            try {
+                val response = liveScoreService.getLiveFixtures(liveScoreApiKey)
+                val body = response.body()
+                if (!response.isSuccessful || body == null) {
+                    _liveScores.value = emptyList()
+                    return@withContext Result.failure(
+                        IllegalStateException("Canlı skor servisi yanıt vermedi (HTTP ${response.code()}).")
+                    )
+                }
+                val serviceErrors = body.errors
+                if ((serviceErrors is Map<*, *> && serviceErrors.isNotEmpty()) ||
+                    (serviceErrors is List<*> && serviceErrors.isNotEmpty())) {
+                    _liveScores.value = emptyList()
+                    return@withContext Result.failure(IllegalStateException("Skor servisi isteği reddetti; API anahtarını ve kotayı kontrol edin."))
+                }
+                // API-FOOTBALL fixture IDs are globally unique. They are NOT
+                // Sportoto coupon numbers; do not use these to calculate coupon outcomes.
+                val actualScores = body.response.map { item ->
+                    val status = when (item.fixture.status.short.uppercase()) {
+                        "HT" -> MatchStatus.HALF_TIME
+                        "FT", "AET", "PEN" -> MatchStatus.FINISHED
+                        "1H", "2H", "ET", "BT", "P", "LIVE", "INT", "SUSP" -> MatchStatus.LIVE
+                        else -> MatchStatus.UPCOMING
+                    }
+                    MatchLiveScore(
+                        matchNumber = item.fixture.id,
+                        homeTeam = item.teams.home.name,
+                        awayTeam = item.teams.away.name,
+                        homeScore = item.goals.home,
+                        awayScore = item.goals.away,
+                        status = status,
+                        minuteText = when {
+                            status == MatchStatus.HALF_TIME -> "İY"
+                            item.fixture.status.elapsed != null -> "${item.fixture.status.elapsed}'"
+                            else -> "—"
+                        },
+                        matchDate = item.fixture.date.orEmpty(),
+                        league = item.league?.name.orEmpty()
+                    )
+                }
+                _liveScores.value = actualScores
+                Result.success(actualScores)
+            } catch (_: Exception) {
+                _liveScores.value = emptyList()
+                Result.failure(IllegalStateException("Canlı skor verisi alınamadı. Ağ bağlantısını kontrol edin."))
+            }
         }
-
-    private fun createInitialLiveScores(): List<MatchLiveScore> {
-        return listOf(
-            MatchLiveScore(1, "FRANSA", "TÜRKİYE", 1, 1, MatchStatus.LIVE, "74'", "15.11.2026 22:45", "UEFA Uluslar Ligi", 1.32, 4.80, 8.50),
-            MatchLiveScore(2, "BULGARİSTAN", "İZLANDA", 1, 2, MatchStatus.FINISHED, "MS", "15.11.2026 19:00", "UEFA Uluslar Ligi", 2.65, 3.10, 2.70),
-            MatchLiveScore(3, "LİHTENŞTAYN", "AZERBAYCAN", 0, 1, MatchStatus.FINISHED, "MS", "15.11.2026 19:00", "UEFA Uluslar Ligi", 5.50, 3.80, 1.55),
-            MatchLiveScore(4, "LÜKSEMBURG", "ESTONYA", 2, 0, MatchStatus.LIVE, "81'", "15.11.2026 21:00", "UEFA Uluslar Ligi", 1.95, 3.20, 3.90),
-            MatchLiveScore(5, "SLOVAKYA", "FAROE ADALARI", 3, 0, MatchStatus.FINISHED, "MS", "15.11.2026 19:00", "UEFA Uluslar Ligi", 1.22, 5.80, 11.00),
-            MatchLiveScore(6, "GÜRCİSTAN", "MACARİSTAN", 0, 0, MatchStatus.LIVE, "63'", "15.11.2026 21:00", "UEFA Uluslar Ligi", 2.30, 3.15, 3.05),
-            MatchLiveScore(7, "NORVEÇ", "GALLER", 2, 1, MatchStatus.LIVE, "52'", "15.11.2026 21:45", "UEFA Uluslar Ligi", 1.68, 3.65, 4.85),
-            MatchLiveScore(8, "PORTEKİZ", "DANİMARKA", 1, 0, MatchStatus.HALF_TIME, "İY", "15.11.2026 21:45", "UEFA Uluslar Ligi", 1.48, 4.10, 6.20),
-            MatchLiveScore(9, "İSPANYA", "İTALYA", null, null, MatchStatus.UPCOMING, "22:45", "15.11.2026 22:45", "UEFA Uluslar Ligi", 1.80, 3.45, 4.25),
-            MatchLiveScore(10, "ALMANYA", "HOLLANDA", null, null, MatchStatus.UPCOMING, "22:45", "15.11.2026 22:45", "UEFA Uluslar Ligi", 1.75, 3.75, 4.10),
-            MatchLiveScore(11, "İNGİLTERE", "BELÇİKA", null, null, MatchStatus.UPCOMING, "22:45", "15.11.2026 22:45", "UEFA Uluslar Ligi", 1.55, 3.90, 5.60),
-            MatchLiveScore(12, "HIRVATİSTAN", "POLONYA", null, null, MatchStatus.UPCOMING, "23:00", "15.11.2026 23:00", "UEFA Uluslar Ligi", 1.62, 3.70, 5.20),
-            MatchLiveScore(13, "İSVİÇRE", "AVUSTURYA", null, null, MatchStatus.UPCOMING, "23:00", "15.11.2026 23:00", "UEFA Uluslar Ligi", 2.10, 3.25, 3.40),
-            MatchLiveScore(14, "İSVEÇ", "SIRBİSTAN", null, null, MatchStatus.UPCOMING, "23:00", "15.11.2026 23:00", "UEFA Uluslar Ligi", 2.05, 3.30, 3.50),
-            MatchLiveScore(15, "ÇEKYA", "UKRAYNA", null, null, MatchStatus.UPCOMING, "23:00", "15.11.2026 23:00", "UEFA Uluslar Ligi", 2.25, 3.20, 3.10)
-        )
-    }
 
     override suspend fun getWeeklyBulletin(forceRefresh: Boolean): Result<WeeklyBulletinResponse> =
         withContext(Dispatchers.IO) {
