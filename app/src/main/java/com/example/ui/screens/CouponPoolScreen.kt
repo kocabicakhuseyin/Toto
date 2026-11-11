@@ -43,6 +43,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -53,6 +54,7 @@ import com.example.model.Coupon
 import com.example.model.CouponPoolEvaluator
 import com.example.model.MatchLiveScore
 import com.example.model.NesineReceipt
+import com.example.model.NesineReceiptArchive
 import com.example.model.NesineReceiptParser
 import com.example.model.PoolCouponDto
 import com.example.model.PoolCouponUpload
@@ -87,6 +89,10 @@ fun CouponPoolScreen(
     onBack: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val receiptArchive = remember(context) { NesineReceiptArchive(context) }
+    var archivedReceipts by remember { mutableStateOf(receiptArchive.list()) }
+    var showArchive by remember { mutableStateOf(false) }
     var signedIn by remember { mutableStateOf(repository.hasSession) }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -186,6 +192,11 @@ fun CouponPoolScreen(
     val selectedCoupon = coupons.firstOrNull { it.id == selectedId } ?: coupons.firstOrNull()
     val ownEntries = entries.filter { it.ownerId.isNotBlank() && it.ownerId == repository.currentUserId }
 
+    if (showArchive) {
+        NesineReceiptsGridScreen(receipts = archivedReceipts, onBack = { showArchive = false })
+        return
+    }
+
     LazyColumn(
         modifier = Modifier.fillMaxSize().background(DarkBackground),
         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp),
@@ -206,6 +217,14 @@ fun CouponPoolScreen(
                     }
                 }
             }
+        }
+
+        item {
+            Button(
+                onClick = { archivedReceipts = receiptArchive.list(); showArchive = true },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF20344B), contentColor = TextPrimary)
+            ) { Text("🧾 Oynanan Kuponlarım • ${archivedReceipts.size}") }
         }
 
         item {
@@ -259,8 +278,13 @@ fun CouponPoolScreen(
                 NesineReceiptWebView(link = nesineLinkToVerify.orEmpty()) { result ->
                     nesineLinkToVerify = null
                     result.onSuccess { receipt ->
-                        verifiedNesineReceipt = receipt
-                        message = "Nesine kuponu doğrulandı: ${receipt.columns.size} kolon."
+                        runCatching { receiptArchive.save(receipt) }
+                            .onSuccess { saved ->
+                                archivedReceipts = saved
+                                verifiedNesineReceipt = receipt
+                                message = "Nesine kuponu doğrulandı ve Oynanan Kuponlarım'a kaydedildi: ${receipt.columns.size} kolon."
+                            }
+                            .onFailure { err -> message = err.message ?: "Doğrulanan kupon kaydedilemedi." }
                     }.onFailure { err -> message = err.message.orEmpty() }
                 }
             }

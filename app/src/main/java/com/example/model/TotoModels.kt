@@ -277,14 +277,7 @@ data class UserProfile(
             orderId = "GPA.3821-4912-9214-72183"
         )
     ),
-    val platformCredentials: Map<String, PlatformCredentials> = mapOf(
-        BettingPlatform.NESINE.id to PlatformCredentials(BettingPlatform.NESINE, "kocabicakhuseyin", "••••••••"),
-        BettingPlatform.IDDAA.id to PlatformCredentials(BettingPlatform.IDDAA, "kocabicakhuseyin", "••••••••"),
-        BettingPlatform.BILYONER.id to PlatformCredentials(BettingPlatform.BILYONER, "kocabicakhuseyin", "••••••••"),
-        BettingPlatform.MISLI.id to PlatformCredentials(BettingPlatform.MISLI, "kocabicakhuseyin", "••••••••"),
-        BettingPlatform.BIREBIN.id to PlatformCredentials(BettingPlatform.BIREBIN, "kocabicakhuseyin", "••••••••"),
-        BettingPlatform.OLEY.id to PlatformCredentials(BettingPlatform.OLEY, "kocabicakhuseyin", "••••••••")
-    ),
+    val platformCredentials: Map<String, PlatformCredentials> = emptyMap(),
     val unreadMessagesCount: Int = 1,
     val hasFreeAutoPlay: Boolean = false,
     val totalAutoPlayedCoupons: Int = 30251

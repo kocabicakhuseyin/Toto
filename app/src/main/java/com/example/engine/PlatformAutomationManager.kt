@@ -33,12 +33,13 @@ object PlatformAutomationManager {
             sb.append("Kolon ${col.index.toString().padStart(2, '0')}: ${col.asString}\n")
         }
         sb.append("---------------------------------\n")
-        sb.append("Spor Toto Çoklu Platform Otomasyonu\n")
+        sb.append("Bu metin yalnızca kupon seçimlerinin kopyasıdır; bahis oynanmış veya onaylanmış değildir.\n")
         return sb.toString()
     }
 
     /**
-     * Executes automated play flow for any of the 6 betting platforms.
+     * Copies the selections and opens the external platform for the user to
+     * log in, select the fixtures and confirm a bet. Does not place a bet.
      */
     fun executeAutoPlay(
         context: Context,
