@@ -46,6 +46,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -63,9 +64,9 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.engine.FilterPreviewResult
+import com.example.engine.MatrixFilterResult
 import com.example.engine.TotoFilterEngine
 import com.example.model.FilterApplicationMode
-import com.example.model.TotoColumn
 import com.example.model.TotoFilterCriteria
 import com.example.model.TotoMatch
 import com.example.ui.theme.CasinoGold
@@ -81,23 +82,44 @@ import com.example.ui.theme.TextMuted
 import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
 import com.example.ui.theme.VibrantRed
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun TotoFilterDialog(
     initialCriteria: TotoFilterCriteria,
     matches: List<TotoMatch>,
-    candidateColumns: List<TotoColumn>,
+    targetColumnCap: Int?,
     onDismiss: () -> Unit,
-    onApplyFilters: (TotoFilterCriteria) -> Unit
+    onApplyFilters: (TotoFilterCriteria, MatrixFilterResult) -> Unit
 ) {
     var criteria by remember { mutableStateOf(initialCriteria) }
     var showStatsForTotalSurprise by remember { mutableStateOf(false) }
 
-    // Live preview of reduction
-    val previewResult: FilterPreviewResult = remember(criteria, candidateColumns) {
-        TotoFilterEngine.previewFilter(candidateColumns, criteria, matches)
+    // Exact matrix evaluation runs off the main thread. Changing any filter cancels
+    // the previous preview; the accepted result is reused when the user applies it.
+    val matrixResult by produceState<MatrixFilterResult?>(
+        initialValue = null,
+        criteria, matches, targetColumnCap
+    ) {
+        delay(120)
+        val previewJob = currentCoroutineContext()
+        value = withContext(Dispatchers.Default) {
+            TotoFilterEngine.filterSelectedMatrix(
+                matches = matches,
+                criteria = criteria,
+                maxColumnsCap = targetColumnCap,
+                shouldCancel = { !previewJob.isActive }
+            )
+        }
     }
+    val evaluatedResult = matrixResult
+    val previewResult: FilterPreviewResult = evaluatedResult?.toPreview()
+        ?: FilterPreviewResult(0, 0, 0, 0, 0.0, 0.0)
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -352,7 +374,7 @@ fun TotoFilterDialog(
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = "Bilgi: Tercihlerinize göre filtreler dinamik olarak uygulanır.",
+                                    text = "İhtimalli modda bütün filtreler zorunludur. Esnek modda 1 filtre koşuluna uymayan kolonlar da tutulabilir.",
                                     color = TextSecondary,
                                     fontSize = 11.5.sp,
                                     fontWeight = FontWeight.Medium
@@ -667,19 +689,29 @@ fun TotoFilterDialog(
                                 verticalArrangement = Arrangement.spacedBy(3.dp)
                             ) {
                                 Text(
-                                    text = "Başlangıç: ${previewResult.initialColumnCount} kolon • ${String.format("%.2f", previewResult.initialCostTL)} ₺",
+                                    text = when {
+                                        evaluatedResult == null -> "Seçili matris hesaplanıyor…"
+                                        evaluatedResult.isTooLarge ->
+                                            "Başlangıç: ${evaluatedResult.initialColumnCount} kolon"
+                                        else ->
+                                            "Başlangıç: ${previewResult.initialColumnCount} kolon • ${String.format("%.2f", previewResult.initialCostTL)} ₺"
+                                    },
                                     color = TextSecondary,
                                     fontSize = 12.sp,
                                     lineHeight = 16.sp
                                 )
                                 Text(
-                                    text = "FİLTRE SONRASI KALAN",
+                                    text = "KUPONA ALINACAK",
                                     color = TextSecondary,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 10.5.sp
                                 )
                                 Text(
-                                    text = "${previewResult.filteredColumnCount} KOLON",
+                                    text = when {
+                                        evaluatedResult == null -> "Hesaplanıyor…"
+                                        evaluatedResult.isTooLarge -> "Sınır aşıldı"
+                                        else -> "${previewResult.filteredColumnCount} KOLON"
+                                    },
                                     color = ElectricGreenGlow,
                                     fontWeight = FontWeight.Black,
                                     fontSize = 21.sp,
@@ -687,7 +719,9 @@ fun TotoFilterDialog(
                                     modifier = Modifier.testTag("filter_preview_count")
                                 )
                                 Text(
-                                    text = "Tahmini maliyet: ${String.format("%.2f", previewResult.filteredCostTL)} ₺",
+                                    text = if (evaluatedResult != null && !evaluatedResult.isTooLarge) {
+                                        "Tahmini maliyet: ${String.format("%.2f", previewResult.filteredCostTL)} ₺"
+                                    } else "Tam sonuç bekleniyor",
                                     color = TextPrimary,
                                     fontWeight = FontWeight.SemiBold,
                                     fontSize = 12.sp,
@@ -696,7 +730,7 @@ fun TotoFilterDialog(
                                 )
                             }
 
-                            if (previewResult.savingsPercentage > 0) {
+                            if (evaluatedResult != null && !evaluatedResult.isTooLarge && previewResult.savingsPercentage > 0) {
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Box(
                                     modifier = Modifier
@@ -714,6 +748,23 @@ fun TotoFilterDialog(
                                     )
                                 }
                             }
+                        }
+
+                        if (evaluatedResult != null) {
+                            val summary = when {
+                                evaluatedResult.isTooLarge ->
+                                    "Bu matris ${TotoFilterEngine.MAX_EXACT_MATRIX_COMBINATIONS} kolonluk kesin hesap sınırını aşıyor. Lütfen maç seçimlerini daraltın."
+                                evaluatedResult.isLimitedByCap ->
+                                    "Filtreyi geçen: ${evaluatedResult.matchingColumnCount} kolon • Kupona alınan: ${evaluatedResult.savedColumnCount} kolon (limit uygulanmış)"
+                                else ->
+                                    "Filtreyi geçen: ${evaluatedResult.matchingColumnCount} kolon • Tamamı kupona alınacak"
+                            }
+                            Text(
+                                text = summary,
+                                color = if (evaluatedResult.isTooLarge) NeonAmber else TextSecondary,
+                                fontSize = 12.sp,
+                                lineHeight = 17.sp
+                            )
                         }
 
                         Row(
@@ -737,9 +788,12 @@ fun TotoFilterDialog(
 
                             Button(
                                 onClick = {
-                                    onApplyFilters(criteria)
-                                    onDismiss()
+                                    if (evaluatedResult != null && !evaluatedResult.isTooLarge) {
+                                        onApplyFilters(criteria, evaluatedResult)
+                                        onDismiss()
+                                    }
                                 },
+                                enabled = evaluatedResult != null && !evaluatedResult.isTooLarge,
                                 colors = ButtonDefaults.buttonColors(containerColor = ElectricGreen),
                                 shape = RoundedCornerShape(8.dp),
                                 modifier = Modifier
@@ -756,7 +810,7 @@ fun TotoFilterDialog(
                                         maxLines = 1
                                     )
                                     Text(
-                                        text = "${previewResult.filteredColumnCount} kolon",
+                                        text = if (evaluatedResult == null) "Hesaplanıyor" else "${previewResult.filteredColumnCount} kolon",
                                         color = Color.White,
                                         fontWeight = FontWeight.SemiBold,
                                         fontSize = 11.sp,
