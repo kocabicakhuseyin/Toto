@@ -113,6 +113,7 @@ fun CouponsScreen(
     onLoadCouponFromFile: (File) -> Unit = {},
     onDeleteSavedJsonFile: (File) -> Unit = {},
     onNavigateToLiveResults: () -> Unit = {},
+    onOpenPool: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -169,6 +170,10 @@ fun CouponsScreen(
                         modifier = Modifier.testTag("btn_empty_to_analysis")
                     ) {
                         Text("Bültene Git & Kupon Yap", color = Color.Black, fontWeight = FontWeight.Black)
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Button(onClick = onOpenPool, modifier = Modifier.testTag("btn_open_coupon_pool")) {
+                        Text("Canlı Kupon Havuzunu Gör")
                     }
                 }
             }
@@ -419,6 +424,18 @@ fun CouponsScreen(
         // 3. ACTION BUTTONS (Compact 2x2 Sportsbook Grid)
         item {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Card(
+                    modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenPool)
+                        .testTag("btn_open_coupon_pool"),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF10251F)),
+                    shape = RoundedCornerShape(10.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, ElectricGreen.copy(alpha = 0.6f))
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text("🏆 Canlı Kupon Havuzu", color = ElectricGreen, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Text("Üyelerin anonim kuponları • Canlı en iyi kolonlar", color = TextSecondary, fontSize = 11.sp)
+                    }
+                }
                 // Canlı Maç & Yaşayan Kolon Takip Bannerı
                 Card(
                     modifier = Modifier

@@ -27,6 +27,7 @@ import com.example.ui.components.AppNavTab
 import com.example.ui.components.ModernBottomNavBar
 import com.example.ui.components.TopHeaderBar
 import com.example.ui.screens.CouponsScreen
+import com.example.ui.screens.CouponPoolScreen
 import com.example.ui.screens.DashboardScreen
 import com.example.ui.screens.ExcelImportDialog
 import com.example.ui.screens.FormulaWizardDialog
@@ -44,6 +45,7 @@ import com.example.engine.FormulaEngine
 import androidx.compose.ui.platform.LocalContext
 import com.example.data.local.AppDatabase
 import com.example.data.repository.WalletRepository
+import com.example.repository.PoolRepository
 import com.example.viewmodel.BillingViewModel
 
 class MainActivity : ComponentActivity() {
@@ -67,6 +69,7 @@ fun MainAppContent() {
     val walletRepository = remember {
         WalletRepository(AppDatabase.getInstance(context).walletDao())
     }
+    val poolRepository = remember { PoolRepository(context) }
     val viewModel: TotoViewModel = viewModel(
         factory = object : androidx.lifecycle.ViewModelProvider.Factory {
             override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
@@ -98,6 +101,7 @@ fun MainAppContent() {
     val targetColumnCap by viewModel.targetColumnCap.collectAsStateWithLifecycle()
 
     val liveScores by viewModel.liveScores.collectAsStateWithLifecycle()
+    val currentBulletin by viewModel.currentBulletin.collectAsStateWithLifecycle()
     val liveScoreProvider by viewModel.liveScoreProvider.collectAsStateWithLifecycle()
     val lastLiveUpdateTime by viewModel.lastLiveUpdateTime.collectAsStateWithLifecycle()
     val isRefreshingLiveScores by viewModel.isRefreshingLiveScores.collectAsStateWithLifecycle()
@@ -108,8 +112,9 @@ fun MainAppContent() {
     val liveMatchesCount = remember(liveScores) { liveScores.count { it.isLive } }
 
     var currentTab by remember { mutableStateOf(AppNavTab.HOME) }
-    LaunchedEffect(currentTab) {
-        val showLiveScores = currentTab == AppNavTab.RESULTS
+    var showPool by remember { mutableStateOf(false) }
+    LaunchedEffect(currentTab, showPool) {
+        val showLiveScores = currentTab == AppNavTab.RESULTS || showPool
         viewModel.setLivePolling(showLiveScores)
         if (showLiveScores) viewModel.pollLiveScoresNow()
     }
@@ -120,8 +125,8 @@ fun MainAppContent() {
     var showFilterDialog by remember { mutableStateOf(false) }
 
     // Back button returns to Home tab if inside a subscreen
-    BackHandler(enabled = currentTab != AppNavTab.HOME) {
-        currentTab = AppNavTab.HOME
+    BackHandler(enabled = showPool || currentTab != AppNavTab.HOME) {
+        if (showPool) showPool = false else currentTab = AppNavTab.HOME
     }
 
     Scaffold(
@@ -149,7 +154,16 @@ fun MainAppContent() {
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            when (currentTab) {
+            if (showPool) {
+                CouponPoolScreen(
+                    weekKey = currentBulletin?.let { "${it.season}-${it.weekNumber}" }.orEmpty(),
+                    matches = matches,
+                    coupons = coupons,
+                    liveScores = liveScores,
+                    repository = poolRepository,
+                    onBack = { showPool = false }
+                )
+            } else when (currentTab) {
                 AppNavTab.HOME -> {
                     DashboardScreen(
                         userProfile = userProfile,
@@ -250,7 +264,8 @@ fun MainAppContent() {
                                 Toast.makeText(context, "Kayıtlı dosya silindi.", Toast.LENGTH_SHORT).show()
                             }
                         },
-                        onNavigateToLiveResults = { currentTab = AppNavTab.RESULTS }
+                        onNavigateToLiveResults = { currentTab = AppNavTab.RESULTS },
+                        onOpenPool = { showPool = true }
                     )
                 }
 
