@@ -57,7 +57,183 @@ data class MatrixFilterResult(
     }
 }
 
+
+/**
+ * The choices a selected 15-match matrix can really produce. Count chips are
+ * derived from the user's singles/doubles/triples instead of fixed assumptions.
+ * A streak is only relevant inside a run of adjacent double/triple matches.
+ */
+data class MatchFilterAvailability(
+    val totalSurpriseCounts: List<Int>,
+    val totalDrawCounts: List<Int>,
+    val totalHardSurpriseCounts: List<Int>,
+    val homeCounts: List<Int>,
+    val awayCounts: List<Int>,
+    val surprises1To9: List<Int>,
+    val draws1To9: List<Int>,
+    val hardSurprises1To9: List<Int>,
+    val surprises10To15: List<Int>,
+    val draws10To15: List<Int>,
+    val hardSurprises10To15: List<Int>,
+    val maximumHomeStreak: Int,
+    val maximumDrawStreak: Int,
+    val maximumAwayStreak: Int,
+    val variableMatchNumbers: Set<Int>
+) {
+    val hasVariableSelections: Boolean get() = variableMatchNumbers.isNotEmpty()
+    val hasApplicableStreakFilter: Boolean get() =
+        maximumHomeStreak >= 2 || maximumDrawStreak >= 2 || maximumAwayStreak >= 2
+
+    /** Clears conditions that cannot apply after the match selections change. */
+    fun restrict(criteria: TotoFilterCriteria): TotoFilterCriteria {
+        fun keep(values: Set<Int>, options: List<Int>): Set<Int> =
+            if (options.size > 1) values.intersect(options.toSet()) else emptySet()
+
+        fun keepStreak(value: Int?, maximum: Int): Int? =
+            value?.takeIf { maximum >= 2 && it in 1..maximum }
+
+        val validCustomMatches = criteria.customSurpriseMatches.intersect(variableMatchNumbers)
+        return criteria.copy(
+            allowedTotalSurprises = keep(criteria.allowedTotalSurprises, totalSurpriseCounts),
+            allowedTotalDraws = keep(criteria.allowedTotalDraws, totalDrawCounts),
+            allowedTotalHardSurprises = keep(criteria.allowedTotalHardSurprises, totalHardSurpriseCounts),
+            allowedCountOf1s = keep(criteria.allowedCountOf1s, homeCounts),
+            allowedCountOf2s = keep(criteria.allowedCountOf2s, awayCounts),
+            allowedSurprises1To9 = keep(criteria.allowedSurprises1To9, surprises1To9),
+            allowedDraws1To9 = keep(criteria.allowedDraws1To9, draws1To9),
+            allowedHardSurprises1To9 = keep(criteria.allowedHardSurprises1To9, hardSurprises1To9),
+            allowedSurprises10To15 = keep(criteria.allowedSurprises10To15, surprises10To15),
+            allowedDraws10To15 = keep(criteria.allowedDraws10To15, draws10To15),
+            allowedHardSurprises10To15 = keep(criteria.allowedHardSurprises10To15, hardSurprises10To15),
+            maxConsecutive1s = keepStreak(criteria.maxConsecutive1s, maximumHomeStreak),
+            maxConsecutiveDraws = keepStreak(criteria.maxConsecutiveDraws, maximumDrawStreak),
+            maxConsecutive2s = keepStreak(criteria.maxConsecutive2s, maximumAwayStreak),
+            customSurpriseMatches = validCustomMatches,
+            allowedCustomSurprisesCount =
+                if (validCustomMatches.isNotEmpty())
+                    criteria.allowedCustomSurprisesCount.filterTo(mutableSetOf()) {
+                        it in 0..validCustomMatches.size
+                    }
+                else emptySet()
+        )
+    }
+}
+
 object TotoFilterEngine {
+
+
+    /** Identical empty-selection fallback to full-matrix generation. */
+    private fun optionsForMatch(match: TotoMatch): List<PredictionOutcome> {
+        if (match.selections.isNotEmpty()) return match.selections.sortedBy { it.ordinal }
+        val h = match.probability.home.firstOrNull() ?: 33
+        val d = match.probability.draw.firstOrNull() ?: 33
+        val a = match.probability.away.firstOrNull() ?: 33
+        return listOf(
+            when {
+                h >= d && h >= a -> PredictionOutcome.HOME
+                d >= h && d >= a -> PredictionOutcome.DRAW
+                else -> PredictionOutcome.AWAY
+            }
+        )
+    }
+
+    /** Computes attainable number buttons from current 1/X/2 selections. */
+    fun filterAvailability(matches: List<TotoMatch>): MatchFilterAvailability {
+        val options = matches.map(::optionsForMatch)
+
+        fun range(
+            indices: IntRange,
+            qualifies: (TotoMatch, PredictionOutcome) -> Boolean
+        ): List<Int> {
+            var least = 0
+            var most = 0
+            for (index in indices) {
+                if (index !in matches.indices) continue
+                val choices = options[index]
+                if (choices.all { qualifies(matches[index], it) }) least++
+                if (choices.any { qualifies(matches[index], it) }) most++
+            }
+            return (least..most).toList()
+        }
+
+        fun streakMaximum(outcome: PredictionOutcome): Int {
+            var current = 0
+            var maximum = 0
+            for (choices in options) {
+                // Singles interrupt the variable streak even if they match.
+                current = if (choices.size >= 2 && outcome in choices) current + 1 else 0
+                maximum = maxOf(maximum, current)
+            }
+            return if (maximum >= 2) maximum else 0
+        }
+
+        val all = matches.indices
+        val firstNine = 0..8
+        val lastSix = 9..14
+        val surprise: (TotoMatch, PredictionOutcome) -> Boolean = { match, outcome ->
+            analyzeMatchOutcome(match, outcome) != OutcomeType.FAVORITE
+        }
+        val hard: (TotoMatch, PredictionOutcome) -> Boolean = { match, outcome ->
+            analyzeMatchOutcome(match, outcome) == OutcomeType.HARD_SURPRISE
+        }
+
+        return MatchFilterAvailability(
+            totalSurpriseCounts = range(all, surprise),
+            totalDrawCounts = range(all) { _, outcome -> outcome == PredictionOutcome.DRAW },
+            totalHardSurpriseCounts = range(all, hard),
+            homeCounts = range(all) { _, outcome -> outcome == PredictionOutcome.HOME },
+            awayCounts = range(all) { _, outcome -> outcome == PredictionOutcome.AWAY },
+            surprises1To9 = range(firstNine, surprise),
+            draws1To9 = range(firstNine) { _, outcome -> outcome == PredictionOutcome.DRAW },
+            hardSurprises1To9 = range(firstNine, hard),
+            surprises10To15 = range(lastSix, surprise),
+            draws10To15 = range(lastSix) { _, outcome -> outcome == PredictionOutcome.DRAW },
+            hardSurprises10To15 = range(lastSix, hard),
+            maximumHomeStreak = streakMaximum(PredictionOutcome.HOME),
+            maximumDrawStreak = streakMaximum(PredictionOutcome.DRAW),
+            maximumAwayStreak = streakMaximum(PredictionOutcome.AWAY),
+            variableMatchNumbers = matches.withIndex().filter { options[it.index].size >= 2 }
+                .mapTo(mutableSetOf()) { it.value.matchNumber }
+        )
+    }
+
+    /**
+     * Consecutive results only count when BOTH adjacent match positions were
+     * selected as doubles or triples; bankos/singles break the streak.
+     */
+    private fun selectedVariableStreak(
+        predictions: List<PredictionOutcome>,
+        matches: List<TotoMatch>,
+        outcome: PredictionOutcome
+    ): Int {
+        var current = 0
+        var maximum = 0
+        for (index in 0 until minOf(predictions.size, matches.size)) {
+            current = if (matches[index].selections.size >= 2 && predictions[index] == outcome) current + 1 else 0
+            maximum = maxOf(maximum, current)
+        }
+        return if (maximum >= 2) maximum else 0
+    }
+
+    private fun countAllowed(
+        actual: Int,
+        selected: Set<Int>,
+        mode: FilterApplicationMode
+    ): Boolean {
+        if (selected.isEmpty()) return true
+        val tolerance = if (mode == FilterApplicationMode.GUARANTEE_FLEXIBLE) 1 else 0
+        return selected.any { kotlin.math.abs(actual - it) <= tolerance }
+    }
+
+    private fun maximumAllowed(
+        actual: Int,
+        selected: Int?,
+        mode: FilterApplicationMode
+    ): Boolean {
+        if (selected == null) return true
+        val tolerance = if (mode == FilterApplicationMode.GUARANTEE_FLEXIBLE) 1 else 0
+        return actual <= selected + tolerance
+    }
 
     /**
      * Determines whether an outcome for a specific match is considered:
@@ -203,87 +379,46 @@ object TotoFilterEngine {
 
         val analysis = analyzeColumn(column, matches, criteria.customSurpriseMatches)
 
-        var violations = 0
+        // Every active condition intersects with all the others. The flexible
+        // mode is a ±1 margin PER numeric condition, never permission to skip
+        // a failing condition (which previously made adding a filter expand results).
+        val mode = criteria.applicationMode
+        if (!countAllowed(analysis.totalSurprises, criteria.allowedTotalSurprises, mode)) return false
+        if (!countAllowed(analysis.totalDraws, criteria.allowedTotalDraws, mode)) return false
+        if (!countAllowed(analysis.totalHardSurprises, criteria.allowedTotalHardSurprises, mode)) return false
+        if (!countAllowed(analysis.countOf1s, criteria.allowedCountOf1s, mode)) return false
+        if (!countAllowed(analysis.countOf2s, criteria.allowedCountOf2s, mode)) return false
+        if (!countAllowed(analysis.surprises1To9, criteria.allowedSurprises1To9, mode)) return false
+        if (!countAllowed(analysis.draws1To9, criteria.allowedDraws1To9, mode)) return false
+        if (!countAllowed(analysis.hardSurprises1To9, criteria.allowedHardSurprises1To9, mode)) return false
+        if (!countAllowed(analysis.surprises10To15, criteria.allowedSurprises10To15, mode)) return false
+        if (!countAllowed(analysis.draws10To15, criteria.allowedDraws10To15, mode)) return false
+        if (!countAllowed(analysis.hardSurprises10To15, criteria.allowedHardSurprises10To15, mode)) return false
 
-        // 1. Toplam Sürpriz Sayısı (0..6)
-        if (criteria.allowedTotalSurprises.isNotEmpty()) {
-            if (!criteria.allowedTotalSurprises.contains(analysis.totalSurprises)) violations++
-        }
+        if (criteria.maxConsecutive1s != null &&
+            !maximumAllowed(
+                selectedVariableStreak(column.predictions, matches, PredictionOutcome.HOME),
+                criteria.maxConsecutive1s, mode
+            )
+        ) return false
+        if (criteria.maxConsecutiveDraws != null &&
+            !maximumAllowed(
+                selectedVariableStreak(column.predictions, matches, PredictionOutcome.DRAW),
+                criteria.maxConsecutiveDraws, mode
+            )
+        ) return false
+        if (criteria.maxConsecutive2s != null &&
+            !maximumAllowed(
+                selectedVariableStreak(column.predictions, matches, PredictionOutcome.AWAY),
+                criteria.maxConsecutive2s, mode
+            )
+        ) return false
 
-        // 2. Beklenen Beraberlik Sayısı (0..6)
-        if (criteria.allowedTotalDraws.isNotEmpty()) {
-            if (!criteria.allowedTotalDraws.contains(analysis.totalDraws)) violations++
-        }
+        if (criteria.customSurpriseMatches.isNotEmpty() &&
+            !countAllowed(analysis.customSurprisesCount, criteria.allowedCustomSurprisesCount, mode)
+        ) return false
 
-        // 3. Beklenen Ters Sürpriz Sayısı (0..3)
-        if (criteria.allowedTotalHardSurprises.isNotEmpty()) {
-            if (!criteria.allowedTotalHardSurprises.contains(analysis.totalHardSurprises)) violations++
-        }
-
-        // 4. 1'lerin Sayısı (7..14)
-        if (criteria.allowedCountOf1s.isNotEmpty()) {
-            if (!criteria.allowedCountOf1s.contains(analysis.countOf1s)) violations++
-        }
-
-        // 5. 2'lerin Sayısı (1..5)
-        if (criteria.allowedCountOf2s.isNotEmpty()) {
-            if (!criteria.allowedCountOf2s.contains(analysis.countOf2s)) violations++
-        }
-
-        // 6. 1-9 Sürpriz
-        if (criteria.allowedSurprises1To9.isNotEmpty()) {
-            if (!criteria.allowedSurprises1To9.contains(analysis.surprises1To9)) violations++
-        }
-
-        // 7. 1-9 Beraberlik
-        if (criteria.allowedDraws1To9.isNotEmpty()) {
-            if (!criteria.allowedDraws1To9.contains(analysis.draws1To9)) violations++
-        }
-
-        // 8. 1-9 Ters Sürpriz
-        if (criteria.allowedHardSurprises1To9.isNotEmpty()) {
-            if (!criteria.allowedHardSurprises1To9.contains(analysis.hardSurprises1To9)) violations++
-        }
-
-        // 9. 10-15 Sürpriz
-        if (criteria.allowedSurprises10To15.isNotEmpty()) {
-            if (!criteria.allowedSurprises10To15.contains(analysis.surprises10To15)) violations++
-        }
-
-        // 10. 10-15 Beraberlik
-        if (criteria.allowedDraws10To15.isNotEmpty()) {
-            if (!criteria.allowedDraws10To15.contains(analysis.draws10To15)) violations++
-        }
-
-        // 11. 10-15 Ters Sürpriz
-        if (criteria.allowedHardSurprises10To15.isNotEmpty()) {
-            if (!criteria.allowedHardSurprises10To15.contains(analysis.hardSurprises10To15)) violations++
-        }
-
-        // 12. Ard Arda 1'ler
-        if (criteria.maxConsecutive1s != null) {
-            if (analysis.maxConsecutive1s > criteria.maxConsecutive1s) violations++
-        }
-
-        // 13. Ard Arda Beraberlikler
-        if (criteria.maxConsecutiveDraws != null) {
-            if (analysis.maxConsecutiveDraws > criteria.maxConsecutiveDraws) violations++
-        }
-
-        // 14. Ard Arda 2'ler
-        if (criteria.maxConsecutive2s != null) {
-            if (analysis.maxConsecutive2s > criteria.maxConsecutive2s) violations++
-        }
-
-        // 15. Özel Sürpriz Filtreleme
-        if (criteria.customSurpriseMatches.isNotEmpty() && criteria.allowedCustomSurprisesCount.isNotEmpty()) {
-            if (!criteria.allowedCustomSurprisesCount.contains(analysis.customSurprisesCount)) violations++
-        }
-
-        return when (criteria.applicationMode) {
-            FilterApplicationMode.PROBABILITY_STRICT -> violations == 0
-            FilterApplicationMode.GUARANTEE_FLEXIBLE -> violations <= 1 && violations < criteria.activeFilterCount
-        }
+        return true
     }
 
     /**
@@ -372,21 +507,7 @@ object TotoFilterEngine {
             return MatrixFilterResult(initial, matching, accepted, isTooLarge = false)
         }
 
-        val options = matches.map { match ->
-            if (match.selections.isNotEmpty()) {
-                match.selections.sortedBy { it.ordinal }
-            } else {
-                val home = match.probability.home.firstOrNull() ?: 33
-                val draw = match.probability.draw.firstOrNull() ?: 33
-                val away = match.probability.away.firstOrNull() ?: 33
-                val favorite = when {
-                    home >= draw && home >= away -> PredictionOutcome.HOME
-                    draw >= home && draw >= away -> PredictionOutcome.DRAW
-                    else -> PredictionOutcome.AWAY
-                }
-                listOf(favorite)
-            }
-        }
+        val options = matches.map(::optionsForMatch)
 
         val total = options.fold(1L) { count, choices -> count * choices.size }
         if (total > MAX_EXACT_MATRIX_COMBINATIONS) {

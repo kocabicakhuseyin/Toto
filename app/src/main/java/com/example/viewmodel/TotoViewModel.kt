@@ -347,7 +347,9 @@ class TotoViewModel(
      * and generates the filtered coupon.
      */
     fun applyFilterProfile(profile: FilterProfileType): Coupon {
-        val criteria = profile.toCriteria()
+        val criteria = com.example.engine.TotoFilterEngine
+            .filterAvailability(_matches.value)
+            .restrict(profile.toCriteria())
         _filterCriteria.value = criteria
         return applyFiltersAndEliminate(criteria, "${profile.displayName} Kuponu")
     }
@@ -386,7 +388,7 @@ class TotoViewModel(
 
         val modeLabel = if (
             criteria.applicationMode == com.example.model.FilterApplicationMode.PROBABILITY_STRICT
-        ) "Tüm koşullar" else "Esnek (1 koşul toleransı)"
+        ) "Tüm koşullar" else "Esnek (koşul başına ±1)"
         val limitInfo = if (result.isLimitedByCap) " • Kupon limiti: ${result.savedColumnCount}" else ""
         val title = customTitle ?: "Matris Eleme ($modeLabel • %$savings Eleme$limitInfo)"
 

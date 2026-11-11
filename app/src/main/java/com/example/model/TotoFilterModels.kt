@@ -3,7 +3,7 @@ package com.example.model
 /**
  * Filter Mode for Toto filters:
  * - PROBABILITY_STRICT: "Filtrelerim Tam Uygulansın İHTİMALLİ"
- * - GUARANTEE_FLEXIBLE: "Filtrelerim Esnek Uygulansın GARANTİLİ"
+ * - GUARANTEE_FLEXIBLE: "Filtrelerim Esnek Uygulansın GARANTİLİ" (her koşulda ±1, yine VE)
  */
 enum class FilterApplicationMode(val title: String, val subtitle: String) {
     PROBABILITY_STRICT("Filtrelerim Tam Uygulansın", "İHTİMALLİ"),

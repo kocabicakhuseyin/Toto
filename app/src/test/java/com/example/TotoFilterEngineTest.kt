@@ -102,7 +102,7 @@ class TotoFilterEngineTest {
     }
 
     @Test
-    fun testGuaranteeFlexibleModeAllowsOneViolation() {
+    fun testGuaranteeFlexibleModeAppliesEveryConditionWithIndividualTolerance() {
         val mixedCol = TotoColumn(1, listOf(
             PredictionOutcome.HOME, PredictionOutcome.DRAW, PredictionOutcome.HOME, PredictionOutcome.HOME,
             PredictionOutcome.AWAY, PredictionOutcome.HOME, PredictionOutcome.HOME, PredictionOutcome.HOME,
@@ -120,9 +120,16 @@ class TotoFilterEngineTest {
         )
         assertFalse(TotoFilterEngine.evaluateColumn(mixedCol, strictCriteria, testMatches))
 
-        // Under GUARANTEE_FLEXIBLE, 1 violation is tolerated to safeguard guarantee tier
+        // Flexible allows a ±1 margin within EACH criterion, not skipping one.
         val flexibleCriteria = strictCriteria.copy(applicationMode = FilterApplicationMode.GUARANTEE_FLEXIBLE)
-        assertTrue(TotoFilterEngine.evaluateColumn(mixedCol, flexibleCriteria, testMatches))
+        assertFalse(TotoFilterEngine.evaluateColumn(mixedCol, flexibleCriteria, testMatches))
+        val nearMiss = strictCriteria.copy(allowedCountOf1s = setOf(9))
+        assertFalse(TotoFilterEngine.evaluateColumn(mixedCol, nearMiss, testMatches))
+        assertTrue(TotoFilterEngine.evaluateColumn(
+            mixedCol,
+            nearMiss.copy(applicationMode = FilterApplicationMode.GUARANTEE_FLEXIBLE),
+            testMatches
+        ))
     }
 
     @Test
@@ -159,17 +166,22 @@ class TotoFilterEngineTest {
             PredictionOutcome.AWAY, PredictionOutcome.DRAW, PredictionOutcome.DRAW
         )
         val col = TotoColumn(1, preds)
+        val adjacentDoubles = testMatches.mapIndexed { index, match ->
+            if (index < 4) match.copy(
+                selections = setOf(PredictionOutcome.HOME, PredictionOutcome.DRAW)
+            ) else match.copy(selections = setOf(PredictionOutcome.HOME))
+        }
 
         // If maxConsecutive1s is 3, col should be eliminated
         val criteriaMax3 = TotoFilterCriteria(
             applicationMode = FilterApplicationMode.PROBABILITY_STRICT,
             maxConsecutive1s = 3
         )
-        assertFalse(TotoFilterEngine.evaluateColumn(col, criteriaMax3, testMatches))
+        assertFalse(TotoFilterEngine.evaluateColumn(col, criteriaMax3, adjacentDoubles))
 
         // If maxConsecutive1s is 4 or 5, col should pass
         val criteriaMax4 = criteriaMax3.copy(maxConsecutive1s = 4)
-        assertTrue(TotoFilterEngine.evaluateColumn(col, criteriaMax4, testMatches))
+        assertTrue(TotoFilterEngine.evaluateColumn(col, criteriaMax4, adjacentDoubles))
     }
 
     @Test
@@ -393,6 +405,103 @@ class TotoFilterEngineTest {
         assertEquals(first.savedColumnCount, second.initialColumnCount)
         assertEquals(first.savedColumnCount, second.savedColumnCount)
         assertTrue(second.columns.all { it.asString in first.columns.map { c -> c.asString }.toSet() })
+    }
+
+    @Test
+    fun testAvailableFilterNumbersAreDerivedFromActualSelectedMatchOptions() {
+        val selected = testMatches.mapIndexed { index, match ->
+            val picks = when (index) {
+                0, 1 -> setOf(PredictionOutcome.HOME, PredictionOutcome.DRAW)
+                4 -> setOf(PredictionOutcome.HOME, PredictionOutcome.DRAW, PredictionOutcome.AWAY)
+                6 -> setOf(PredictionOutcome.HOME, PredictionOutcome.AWAY)
+                else -> setOf(PredictionOutcome.HOME)
+            }
+            match.copy(selections = picks)
+        }
+        val availability = TotoFilterEngine.filterAvailability(selected)
+        assertEquals((0..3).toList(), availability.totalDrawCounts)
+        assertEquals((0..2).toList(), availability.awayCounts)
+        assertEquals((11..15).toList(), availability.homeCounts)
+        assertEquals((0..3).toList(), availability.draws1To9)
+        assertEquals(listOf(0), availability.draws10To15)
+        assertEquals(2, availability.maximumHomeStreak)
+        assertEquals(2, availability.maximumDrawStreak)
+        assertEquals(0, availability.maximumAwayStreak)
+        assertEquals(setOf(1, 2, 5, 7), availability.variableMatchNumbers)
+    }
+
+    @Test
+    fun testStreakOnlyExistsBetweenAdjacentDoublesOrTriples() {
+        val fixed = testMatches.map { match ->
+            match.copy(selections = setOf(PredictionOutcome.HOME))
+        }
+        val apart = fixed.mapIndexed { index, match ->
+            if (index == 0 || index == 2) match.copy(
+                selections = setOf(PredictionOutcome.HOME, PredictionOutcome.DRAW)
+            ) else match
+        }
+        val allHome = TotoColumn(1, List(15) { PredictionOutcome.HOME })
+        val limitOne = TotoFilterCriteria(maxConsecutive1s = 1)
+        val apartOptions = TotoFilterEngine.filterAvailability(apart)
+        assertFalse(apartOptions.hasApplicableStreakFilter)
+        assertEquals(null, apartOptions.restrict(limitOne).maxConsecutive1s)
+        assertTrue(TotoFilterEngine.evaluateColumn(allHome, limitOne, apart))
+
+        val together = apart.mapIndexed { index, match ->
+            if (index == 1) match.copy(
+                selections = setOf(PredictionOutcome.HOME, PredictionOutcome.DRAW, PredictionOutcome.AWAY)
+            ) else match
+        }
+        assertEquals(3, TotoFilterEngine.filterAvailability(together).maximumHomeStreak)
+        assertFalse(TotoFilterEngine.evaluateColumn(allHome, limitOne, together))
+        val interrupted = allHome.copy(
+            predictions = allHome.predictions.toMutableList().also { it[1] = PredictionOutcome.DRAW }
+        )
+        assertTrue(TotoFilterEngine.evaluateColumn(interrupted, limitOne, together))
+    }
+
+    @Test
+    fun testOldPresetRestrictionsAreDiscardedWhenMatchesCannotProduceThem() {
+        val allFixed = testMatches.map {
+            it.copy(selections = setOf(PredictionOutcome.HOME))
+        }
+        val possible = TotoFilterEngine.filterAvailability(allFixed)
+        val preset = possible.restrict(com.example.model.FilterProfileType.BALANCED.toCriteria())
+        assertFalse(possible.hasVariableSelections)
+        assertFalse(possible.hasApplicableStreakFilter)
+        assertEquals(emptySet<Int>(), preset.allowedTotalDraws)
+        assertEquals(null, preset.maxConsecutive1s)
+        assertEquals(null, preset.maxConsecutiveDraws)
+        assertFalse(preset.isActive)
+    }
+
+    @Test
+    fun testEveryAdditionalConditionNarrowsFlexibleFilteringToo() {
+        val matches = testMatches.mapIndexed { index, match ->
+            match.copy(selections = if (index < 3)
+                setOf(PredictionOutcome.HOME, PredictionOutcome.DRAW)
+            else setOf(PredictionOutcome.HOME))
+        }
+        val all = com.example.engine.FormulaEngine.generateAllCombinations(matches, 100)
+        val firstCriteria = TotoFilterCriteria(
+            applicationMode = FilterApplicationMode.GUARANTEE_FLEXIBLE,
+            allowedTotalDraws = setOf(0)
+        )
+        val secondCriteria = firstCriteria.copy(allowedCountOf1s = setOf(13))
+        val first = TotoFilterEngine.filterColumns(all, firstCriteria, matches)
+        val second = TotoFilterEngine.filterColumns(all, secondCriteria, matches)
+        assertEquals(4, first.size)
+        assertEquals(3, second.size)
+        assertTrue(second.all { col -> col.asString in first.map { it.asString }.toSet() })
+
+        val successive = TotoFilterEngine.filterSelectedMatrix(
+            matches, secondCriteria,
+            maxColumnsCap = com.example.engine.FormulaEngine.UNLIMITED_COLUMNS_CAP,
+            sourceColumns = first
+        )
+        assertEquals(first.size, successive.initialColumnCount)
+        assertEquals(second.size, successive.savedColumnCount)
+        assertTrue(successive.columns.all { it.asString in first.map { prior -> prior.asString }.toSet() })
     }
 
 }

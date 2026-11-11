@@ -100,7 +100,11 @@ fun TotoFilterDialog(
     onDismiss: () -> Unit,
     onApplyFilters: (TotoFilterCriteria, MatrixFilterResult, Boolean) -> Unit
 ) {
-    var criteria by remember { mutableStateOf(initialCriteria) }
+    val availability = remember(matches) { TotoFilterEngine.filterAvailability(matches) }
+    val variableMatches = remember(matches) {
+        matches.filter { it.matchNumber in availability.variableMatchNumbers }
+    }
+    var criteria by remember(matches) { mutableStateOf(availability.restrict(initialCriteria)) }
     var showStatsForTotalSurprise by remember { mutableStateOf(false) }
 
     // Exact matrix evaluation runs off the main thread. Changing any filter cancels
@@ -290,7 +294,7 @@ fun TotoFilterDialog(
                                                     RoundedCornerShape(8.dp)
                                                 )
                                                 .clickable {
-                                                    criteria = profile.toCriteria()
+                                                    criteria = availability.restrict(profile.toCriteria())
                                                 }
                                                 .padding(vertical = 8.dp, horizontal = 4.dp),
                                             contentAlignment = Alignment.Center
@@ -380,7 +384,7 @@ fun TotoFilterDialog(
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = "İhtimalli: bütün filtreler zorunlu. Esnek: en az bir koşul geçmeli; en fazla 1 koşul ihlali tolere edilir.",
+                                    text = "Filtreler birlikte uygulanır (VE). İhtimalli: tam eşleşme. Esnek: her sayı koşulunda ±1 tolerans; hiçbir koşul atlanmaz.",
                                     color = TextSecondary,
                                     fontSize = 11.5.sp,
                                     fontWeight = FontWeight.Medium
@@ -404,7 +408,7 @@ fun TotoFilterDialog(
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = "⚡ Tüm Uygulanabilir Filtreler",
+                                text = "⚡ Maç Tercihlerine Uygun Filtreler",
                                 color = Color.White,
                                 fontWeight = FontWeight.Black,
                                 fontSize = 13.sp
@@ -412,11 +416,30 @@ fun TotoFilterDialog(
                         }
                     }
 
-                    // 4. Filter Card 1: 15 Maçta Toplam Sürpriz Sayısı
                     item {
+                        val singleCount = matches.count { it.selections.size <= 1 }
+                        val doubleCount = matches.count { it.selections.size == 2 }
+                        val tripleCount = matches.count { it.selections.size == 3 }
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(
+                                text = "Seçimler: $singleCount tekli • $doubleCount çifte • $tripleCount kapalı (1-X-2)",
+                                color = ElectricCyan, fontSize = 12.sp, fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = if (availability.hasVariableSelections)
+                                    "Yalnız seçtiğiniz matrisin üretebildiği değerler gösterilir. Her yeni filtre önceki eleme ile birlikte uygulanır."
+                                else
+                                    "Tüm maçlar tekli. Daraltmak için en az bir maçı çifte veya kapalı (üçlü) seçin.",
+                                color = TextSecondary, fontSize = 11.sp, lineHeight = 16.sp
+                            )
+                        }
+                    }
+
+                    // 4. Filter Card 1: 15 Maçta Toplam Sürpriz Sayısı
+                    if (availability.totalSurpriseCounts.size > 1) item {
                         FilterNumberCard(
                             title = "15 Maçta Toplam Sürpriz(Beraberlik ve Ters Sürpriz) Sayısı",
-                            availableNumbers = listOf(0, 1, 2, 3, 4, 5, 6),
+                            availableNumbers = availability.totalSurpriseCounts,
                             selectedNumbers = criteria.allowedTotalSurprises,
                             onToggleNumber = { num ->
                                 val updated = criteria.allowedTotalSurprises.toMutableSet()
@@ -457,10 +480,10 @@ fun TotoFilterDialog(
                     }
 
                     // 5. Filter Card 2: 15 Maçta Beklediğiniz Beraberlik Sayısı
-                    item {
+                    if (availability.totalDrawCounts.size > 1) item {
                         FilterNumberCard(
                             title = "15 Maçta Beklediğiniz Beraberlik Sayısı",
-                            availableNumbers = listOf(0, 1, 2, 3, 4, 5, 6),
+                            availableNumbers = availability.totalDrawCounts,
                             selectedNumbers = criteria.allowedTotalDraws,
                             onToggleNumber = { num ->
                                 val updated = criteria.allowedTotalDraws.toMutableSet()
@@ -471,10 +494,10 @@ fun TotoFilterDialog(
                     }
 
                     // 6. Filter Card 3: 15 Maçta Beklenen Ters Sürpriz Sayısı
-                    item {
+                    if (availability.totalHardSurpriseCounts.size > 1) item {
                         FilterNumberCard(
                             title = "15 Maçta Beklenen Ters (Sert) Sürpriz Sayısı",
-                            availableNumbers = listOf(0, 1, 2, 3),
+                            availableNumbers = availability.totalHardSurpriseCounts,
                             selectedNumbers = criteria.allowedTotalHardSurprises,
                             onToggleNumber = { num ->
                                 val updated = criteria.allowedTotalHardSurprises.toMutableSet()
@@ -485,10 +508,10 @@ fun TotoFilterDialog(
                     }
 
                     // 7. Filter Card 4: 15 Maçta 1'lerin Sayısı (7..14)
-                    item {
+                    if (availability.homeCounts.size > 1) item {
                         FilterNumberCard(
                             title = "15 Maçta 1'lerin Sayısı (Ev Sahibi Galibiyeti)",
-                            availableNumbers = listOf(7, 8, 9, 10, 11, 12, 13, 14),
+                            availableNumbers = availability.homeCounts,
                             selectedNumbers = criteria.allowedCountOf1s,
                             onToggleNumber = { num ->
                                 val updated = criteria.allowedCountOf1s.toMutableSet()
@@ -499,10 +522,10 @@ fun TotoFilterDialog(
                     }
 
                     // 8. Filter Card 5: 15 Maçta 2'lerin Sayısı (1..5)
-                    item {
+                    if (availability.awayCounts.size > 1) item {
                         FilterNumberCard(
                             title = "15 Maçta 2'lerin Sayısı (Deplasman Galibiyeti)",
-                            availableNumbers = listOf(1, 2, 3, 4, 5),
+                            availableNumbers = availability.awayCounts,
                             selectedNumbers = criteria.allowedCountOf2s,
                             onToggleNumber = { num ->
                                 val updated = criteria.allowedCountOf2s.toMutableSet()
@@ -513,7 +536,9 @@ fun TotoFilterDialog(
                     }
 
                     // 9. SECTION: 1-9 Maçları (Süper Lig) Filtreleri
-                    item {
+                    if (availability.surprises1To9.size > 1 ||
+                        availability.draws1To9.size > 1 ||
+                        availability.hardSurprises1To9.size > 1) item {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -536,10 +561,10 @@ fun TotoFilterDialog(
                         }
                     }
 
-                    item {
+                    if (availability.surprises1To9.size > 1) item {
                         FilterNumberCard(
                             title = "1-9 Maçlarında beklediğiniz Toplam Sürpriz Sayısı",
-                            availableNumbers = listOf(0, 1, 2, 3, 4, 5),
+                            availableNumbers = availability.surprises1To9,
                             selectedNumbers = criteria.allowedSurprises1To9,
                             onToggleNumber = { num ->
                                 val s = criteria.allowedSurprises1To9.toMutableSet()
@@ -549,10 +574,10 @@ fun TotoFilterDialog(
                         )
                     }
 
-                    item {
+                    if (availability.draws1To9.size > 1) item {
                         FilterNumberCard(
                             title = "1-9 Maçlarında beklediğiniz Beraberlik Sayısı",
-                            availableNumbers = listOf(0, 1, 2, 3, 4, 5),
+                            availableNumbers = availability.draws1To9,
                             selectedNumbers = criteria.allowedDraws1To9,
                             onToggleNumber = { num ->
                                 val s = criteria.allowedDraws1To9.toMutableSet()
@@ -562,10 +587,10 @@ fun TotoFilterDialog(
                         )
                     }
 
-                    item {
+                    if (availability.hardSurprises1To9.size > 1) item {
                         FilterNumberCard(
                             title = "1-9 Maçlarında beklediğiniz Ters Sürpriz Sayısı",
-                            availableNumbers = listOf(0, 1, 2, 3),
+                            availableNumbers = availability.hardSurprises1To9,
                             selectedNumbers = criteria.allowedHardSurprises1To9,
                             onToggleNumber = { num ->
                                 val s = criteria.allowedHardSurprises1To9.toMutableSet()
@@ -576,7 +601,9 @@ fun TotoFilterDialog(
                     }
 
                     // 10. SECTION: Avrupa Maçları (10-15) Filtreleri
-                    item {
+                    if (availability.surprises10To15.size > 1 ||
+                        availability.draws10To15.size > 1 ||
+                        availability.hardSurprises10To15.size > 1) item {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -599,10 +626,10 @@ fun TotoFilterDialog(
                         }
                     }
 
-                    item {
+                    if (availability.surprises10To15.size > 1) item {
                         FilterNumberCard(
                             title = "10-15 Maçlarında beklediğiniz Toplam Sürpriz Sayısı",
-                            availableNumbers = listOf(0, 1, 2, 3, 4, 5),
+                            availableNumbers = availability.surprises10To15,
                             selectedNumbers = criteria.allowedSurprises10To15,
                             onToggleNumber = { num ->
                                 val s = criteria.allowedSurprises10To15.toMutableSet()
@@ -612,10 +639,10 @@ fun TotoFilterDialog(
                         )
                     }
 
-                    item {
+                    if (availability.draws10To15.size > 1) item {
                         FilterNumberCard(
                             title = "10-15 Maçlarında beklediğiniz Beraberlik Sayısı",
-                            availableNumbers = listOf(0, 1, 2, 3, 4, 5),
+                            availableNumbers = availability.draws10To15,
                             selectedNumbers = criteria.allowedDraws10To15,
                             onToggleNumber = { num ->
                                 val s = criteria.allowedDraws10To15.toMutableSet()
@@ -625,10 +652,10 @@ fun TotoFilterDialog(
                         )
                     }
 
-                    item {
+                    if (availability.hardSurprises10To15.size > 1) item {
                         FilterNumberCard(
                             title = "10-15 Maçlarında beklediğiniz Ters Sürpriz Sayısı",
-                            availableNumbers = listOf(0, 1, 2, 3),
+                            availableNumbers = availability.hardSurprises10To15,
                             selectedNumbers = criteria.allowedHardSurprises10To15,
                             onToggleNumber = { num ->
                                 val s = criteria.allowedHardSurprises10To15.toMutableSet()
@@ -639,11 +666,14 @@ fun TotoFilterDialog(
                     }
 
                     // 11. Ard Arda Gelenler (Seri) Filtresi
-                    item {
+                    if (availability.hasApplicableStreakFilter) item {
                         StreakFilterCard(
                             max1s = criteria.maxConsecutive1s,
                             maxDraws = criteria.maxConsecutiveDraws,
                             max2s = criteria.maxConsecutive2s,
+                            maximum1s = availability.maximumHomeStreak,
+                            maximumDraws = availability.maximumDrawStreak,
+                            maximum2s = availability.maximumAwayStreak,
                             onMax1sChanged = { criteria = criteria.copy(maxConsecutive1s = it) },
                             onMaxDrawsChanged = { criteria = criteria.copy(maxConsecutiveDraws = it) },
                             onMax2sChanged = { criteria = criteria.copy(maxConsecutive2s = it) }
@@ -651,15 +681,15 @@ fun TotoFilterDialog(
                     }
 
                     // 12. Özel Sürpriz Filtreleme
-                    item {
+                    if (variableMatches.isNotEmpty()) item {
                         CustomMatchSurpriseFilterCard(
-                            matches = matches,
+                            matches = variableMatches,
                             selectedMatches = criteria.customSurpriseMatches,
                             allowedCount = criteria.allowedCustomSurprisesCount,
                             onToggleMatch = { matchNum ->
                                 val updated = criteria.customSurpriseMatches.toMutableSet()
                                 if (updated.contains(matchNum)) updated.remove(matchNum) else updated.add(matchNum)
-                                criteria = criteria.copy(customSurpriseMatches = updated)
+                                criteria = availability.restrict(criteria.copy(customSurpriseMatches = updated))
                             },
                             onToggleCount = { countNum ->
                                 val updated = criteria.allowedCustomSurprisesCount.toMutableSet()
@@ -687,8 +717,8 @@ fun TotoFilterDialog(
                     ) {
                         Text(
                             text = if (sourceColumns == null)
-                                "Kaynak: seçili maçların tam matrisi"
-                            else "Kaynak: mevcut kupon • ${sourceColumns.size} kolon",
+                                "Kaynak: seçili maçların tam matrisi • ${criteria.activeFilterCount} bağlı filtre"
+                            else "Kaynak: mevcut kupon • ${sourceColumns.size} kolon • ${criteria.activeFilterCount} bağlı filtre",
                             color = ElectricCyan,
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 11.sp
@@ -1096,6 +1126,9 @@ private fun StreakFilterCard(
     max1s: Int?,
     maxDraws: Int?,
     max2s: Int?,
+    maximum1s: Int,
+    maximumDraws: Int,
+    maximum2s: Int,
     onMax1sChanged: (Int?) -> Unit,
     onMaxDrawsChanged: (Int?) -> Unit,
     onMax2sChanged: (Int?) -> Unit
@@ -1129,15 +1162,27 @@ private fun StreakFilterCard(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            StreakSelectorRow("En Fazla Art Arda 1'ler:", listOf(2, 3, 4, 5), max1s, onMax1sChanged)
-            Spacer(modifier = Modifier.height(6.dp))
-            StreakSelectorRow("En Fazla Art Arda Beraberlikler:", listOf(1, 2, 3), maxDraws, onMaxDrawsChanged)
-            Spacer(modifier = Modifier.height(6.dp))
-            StreakSelectorRow("En Fazla Art Arda 2'ler:", listOf(1, 2, 3), max2s, onMax2sChanged)
+            Text(
+                text = "Yalnız yan yana çifte/kapalı girilen maçların sonuç serileri sayılır. Tekliler seriyi keser.",
+                color = TextSecondary, fontSize = 11.sp, lineHeight = 15.sp
+            )
+            if (maximum1s >= 2) {
+                Spacer(modifier = Modifier.height(8.dp))
+                StreakSelectorRow("En Fazla Art Arda 1'ler:", (1..maximum1s).toList(), max1s, onMax1sChanged)
+            }
+            if (maximumDraws >= 2) {
+                Spacer(modifier = Modifier.height(8.dp))
+                StreakSelectorRow("En Fazla Art Arda Beraberlikler:", (1..maximumDraws).toList(), maxDraws, onMaxDrawsChanged)
+            }
+            if (maximum2s >= 2) {
+                Spacer(modifier = Modifier.height(8.dp))
+                StreakSelectorRow("En Fazla Art Arda 2'ler:", (1..maximum2s).toList(), max2s, onMax2sChanged)
+            }
         }
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun StreakSelectorRow(
     label: String,
@@ -1148,7 +1193,11 @@ private fun StreakSelectorRow(
     Column {
         Text(text = label, color = TextSecondary, fontSize = 11.sp, fontWeight = FontWeight.Medium)
         Spacer(modifier = Modifier.height(4.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
             // Option "Sınırsız" (null)
             val isUnlimited = (current == null)
             Box(
@@ -1265,13 +1314,17 @@ private fun CustomMatchSurpriseFilterCard(
 
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "Bu maçlardan beklenen sürpriz sayısı:",
+                text = "Seçilen çifte/kapalı maçlardan beklenen sürpriz sayısı:",
                 color = TextSecondary,
                 fontSize = 11.sp
             )
             Spacer(modifier = Modifier.height(6.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf(0, 1, 2, 3, 4).forEach { c ->
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                (0..selectedMatches.size).forEach { c ->
                     val isSel = allowedCount.contains(c)
                     Box(
                         modifier = Modifier
