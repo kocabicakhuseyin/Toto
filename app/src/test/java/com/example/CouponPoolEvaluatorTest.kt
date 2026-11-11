@@ -44,6 +44,9 @@ class CouponPoolEvaluatorTest {
         assertEquals(15, ranks.first().maximumPossible)
         assertEquals(1, ranks.last().finishedWrong)
         assertEquals(14, ranks.last().maximumPossible)
+        val (final, live) = CouponPoolEvaluator.resultCodes(matchLabels, scores)
+        assertEquals("1" + "-".repeat(14), final)
+        assertEquals("-1" + "-".repeat(13), live)
     }
 
     @Test

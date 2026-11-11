@@ -17,7 +17,8 @@ data class PoolCouponDto(
     @Json(name = "masked_name") val maskedName: String,
     @Json(name = "match_labels") val matchLabels: List<String>,
     val columns: List<String>,
-    @Json(name = "shared_at") val sharedAt: String = ""
+    @Json(name = "shared_at") val sharedAt: String = "",
+    @Json(name = "owner_id") val ownerId: String = ""
 )
 
 @JsonClass(generateAdapter = true)
@@ -73,24 +74,23 @@ object CouponPoolEvaluator {
         .take(15)
         .map { "${it.homeTeam}|${it.awayTeam}|${it.matchDate}" }
 
-    fun rank(coupons: List<PoolCouponDto>, liveScores: List<MatchLiveScore>): List<PoolColumnRank> {
-        val latestByTeamPair = liveScores
-            .filter { it.homeScore != null && it.awayScore != null && it.status != MatchStatus.UPCOMING }
-            .groupBy { pairKey(it.homeTeam, it.awayTeam) }
+    /** Each character is 1/X/2 if verified, or '-' when not yet known. */
+    fun resultCodes(matchLabels: List<String>, liveScores: List<MatchLiveScore>): Pair<String, String> {
+        if (matchLabels.size != 15) return "-".repeat(15) to "-".repeat(15)
+        val matched = resolveScores(matchLabels, liveScores)
+        val final = matched.joinToString("") { score ->
+            if (score?.status == MatchStatus.FINISHED) score.winningOutcome?.code ?: "-" else "-"
+        }
+        val live = matched.joinToString("") { score ->
+            if (score?.isLive == true) score.winningOutcome?.code ?: "-" else "-"
+        }
+        return final to live
+    }
 
+    fun rank(coupons: List<PoolCouponDto>, liveScores: List<MatchLiveScore>): List<PoolColumnRank> {
         return coupons.asSequence().flatMap { coupon ->
             if (coupon.matchLabels.size != 15) return@flatMap emptySequence()
-            val results = coupon.matchLabels.map { label ->
-                val parts = label.split('|', limit = 3)
-                if (parts.size < 2) return@map null
-                val expectedDate = parts.getOrNull(2)?.let { matchTimeMs(it, isBulletin = true) }
-                val eligible = latestByTeamPair[pairKey(parts[0], parts[1])].orEmpty()
-                    .filter { score ->
-                        val actualDate = matchTimeMs(score.matchDate, isBulletin = false)
-                        expectedDate == null || actualDate == null || abs(expectedDate - actualDate) < 12 * 60 * 60 * 1000L
-                    }
-                eligible.singleOrNull() // Ambiguous fixtures are never guessed.
-            }
+            val results = resolveScores(coupon.matchLabels, liveScores)
             coupon.columns.asSequence().mapIndexedNotNull { idx, code ->
                 if (!code.matches(Regex("[1X2]{15}"))) return@mapIndexedNotNull null
                 var finishedCorrect = 0
@@ -125,6 +125,21 @@ object CouponPoolEvaluator {
                 .thenByDescending { it.liveCorrect }
                 .thenBy { it.finishedWrong }
         ).take(40).toList()
+    }
+
+    private fun resolveScores(labels: List<String>, liveScores: List<MatchLiveScore>): List<MatchLiveScore?> {
+        val scoresByTeams = liveScores
+            .filter { it.homeScore != null && it.awayScore != null && it.status != MatchStatus.UPCOMING }
+            .groupBy { pairKey(it.homeTeam, it.awayTeam) }
+        return labels.map { label ->
+            val parts = label.split('|', limit = 3)
+            if (parts.size < 2) return@map null
+            val expectedDate = parts.getOrNull(2)?.let { matchTimeMs(it, isBulletin = true) }
+            scoresByTeams[pairKey(parts[0], parts[1])].orEmpty().filter { score ->
+                val actualDate = matchTimeMs(score.matchDate, isBulletin = false)
+                expectedDate == null || actualDate == null || abs(expectedDate - actualDate) < 12 * 60 * 60 * 1000L
+            }.singleOrNull() // Ambiguous fixtures are never guessed.
+        }
     }
 
     private fun pairKey(home: String, away: String): String =

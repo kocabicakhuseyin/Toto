@@ -3,10 +3,14 @@ package com.example.repository
 import android.content.Context
 import com.example.model.PoolCouponDto
 import com.example.model.PoolCouponUpload
+import com.example.model.PoolColumnRank
+import com.example.model.MatchLiveScore
+import com.example.model.CouponPoolEvaluator
 import com.example.network.PoolAuthCredentials
 import com.example.network.PoolAuthResponse
 import com.example.network.PoolNetworkModule
 import com.example.network.PoolRefreshRequest
+import com.example.network.PoolRankRequest
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -24,6 +28,7 @@ class PoolRepository(context: Context) {
     private val key = PoolNetworkModule.PUBLISHABLE_KEY
 
     val hasSession: Boolean get() = !prefs.getString("refresh_token", null).isNullOrEmpty()
+    val currentUserId: String get() = prefs.getString("user_id", null).orEmpty()
 
     suspend fun register(email: String, password: String): Result<Boolean> = withContext(Dispatchers.IO) {
         if (!isValidCredentials(email, password)) {
@@ -85,6 +90,28 @@ class PoolRepository(context: Context) {
         }
     }
 
+    suspend fun getRanking(
+        weekKey: String, matchLabels: List<String>, liveScores: List<MatchLiveScore>
+    ): Result<List<PoolColumnRank>> = withContext(Dispatchers.IO) {
+        if (matchLabels.size != 15) return@withContext Result.failure(
+            IllegalArgumentException("Sıralama için 15 maçlık bülten gereklidir.")
+        )
+        try {
+            val token = usableToken() ?: return@withContext Result.failure(
+                IllegalStateException("Sıralama için üye girişi yapın.")
+            )
+            val (finalCodes, liveCodes) = CouponPoolEvaluator.resultCodes(matchLabels, liveScores)
+            val response = api.rank(key, "Bearer $token",
+                PoolRankRequest(weekKey, matchLabels, finalCodes, liveCodes))
+            if (response.isSuccessful) Result.success(response.body().orEmpty().map { it.asDomain() })
+            else Result.failure(IllegalStateException("Canlı sıralama alınamadı (HTTP ${response.code()})."))
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            Result.failure(IllegalStateException("Canlı sıralama sunucusuna bağlanılamadı."))
+        }
+    }
+
     suspend fun share(coupon: PoolCouponUpload): Result<Unit> = withContext(Dispatchers.IO) {
         if (coupon.matchLabels.size != 15 || coupon.columns.isEmpty() || coupon.columns.size > 4096 ||
             coupon.columns.any { !it.matches(Regex("[1X2]{15}")) } || !coupon.confirmedByMember) {
@@ -105,6 +132,21 @@ class PoolRepository(context: Context) {
             throw cancelled
         } catch (_: Exception) {
             Result.failure(IllegalStateException("Kupon paylaşılırken bağlantı kesildi."))
+        }
+    }
+
+    suspend fun withdraw(couponId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val token = usableToken() ?: return@withContext Result.failure(
+                IllegalStateException("Paylaşımı kaldırmak için giriş yapın.")
+            )
+            val response = api.withdraw(key, "Bearer $token", "eq.$couponId")
+            if (response.isSuccessful) Result.success(Unit)
+            else Result.failure(IllegalStateException("Kupon paylaşımı kaldırılamadı (HTTP ${response.code()})."))
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            Result.failure(IllegalStateException("Paylaşım kaldırılırken bağlantı kesildi."))
         }
     }
 
@@ -133,7 +175,7 @@ class PoolRepository(context: Context) {
         prefs.edit()
             .putString("access_token", body.accessToken)
             .putString("refresh_token", body.refreshToken)
-            .putString("user_id", body.user?.id)
+            .putString("user_id", body.user?.id ?: prefs.getString("user_id", null))
             .putLong("expires_at_ms", System.currentTimeMillis() + (body.expiresIn ?: 3600L) * 1000L)
             .apply()
     }

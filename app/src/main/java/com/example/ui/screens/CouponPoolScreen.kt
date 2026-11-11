@@ -89,8 +89,10 @@ fun CouponPoolScreen(
     var sharingConsent by remember { mutableStateOf(false) }
     var selectedId by remember { mutableStateOf(coupons.firstOrNull()?.id.orEmpty()) }
     var entries by remember { mutableStateOf<List<PoolCouponDto>>(emptyList()) }
+    var ranked by remember { mutableStateOf<List<PoolColumnRank>>(emptyList()) }
     var loading by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf("") }
+    val matchLabels = remember(matches) { CouponPoolEvaluator.matchLabels(matches) }
 
     fun refresh() {
         if (!signedIn || weekKey.isBlank()) return
@@ -99,25 +101,39 @@ fun CouponPoolScreen(
             repository.getWeek(weekKey)
                 .onSuccess { entries = it; message = "" }
                 .onFailure { message = it.message.orEmpty() }
+            repository.getRanking(weekKey, matchLabels, liveScores)
+                .onSuccess { ranked = it }
+                .onFailure { message = it.message.orEmpty() }
             loading = false
         }
     }
 
-    LaunchedEffect(weekKey, signedIn) {
+    LaunchedEffect(weekKey, signedIn, matchLabels) {
         if (signedIn && weekKey.isNotBlank()) {
             while (true) {
                 repository.getWeek(weekKey)
                     .onSuccess { entries = it; message = "" }
                     .onFailure { message = it.message.orEmpty() }
+                repository.getRanking(weekKey, matchLabels, liveScores)
+                    .onSuccess { ranked = it }
+                    .onFailure { message = it.message.orEmpty() }
                 delay(60_000L)
             }
         } else {
             entries = emptyList()
+            ranked = emptyList()
         }
     }
 
-    val ranked = remember(entries, liveScores) { CouponPoolEvaluator.rank(entries, liveScores) }
+    LaunchedEffect(weekKey, signedIn, matchLabels, liveScores) {
+        if (signedIn && weekKey.isNotBlank() && matchLabels.size == 15) {
+            repository.getRanking(weekKey, matchLabels, liveScores)
+                .onSuccess { ranked = it }
+        }
+    }
+
     val selectedCoupon = coupons.firstOrNull { it.id == selectedId } ?: coupons.firstOrNull()
+    val ownEntries = entries.filter { it.ownerId.isNotBlank() && it.ownerId == repository.currentUserId }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().background(DarkBackground),
@@ -261,8 +277,34 @@ fun CouponPoolScreen(
             item {
                 PoolCard {
                     Text("Haftanın en iyi kolonları", color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                    Text("${entries.size} paylaşılmış kupon • ${entries.sumOf { it.columns.size }} kolon", color = CasinoGold, fontSize = 12.sp)
+                    Text("Son ${entries.size} paylaşım • Tüm uygun kolonlardan en iyi 40", color = CasinoGold, fontSize = 12.sp)
                     Text("Biten maçlar kesin, devam eden maçlar geçicidir. Eşleşmeyen maçlar puanlandırılmaz.", color = TextMuted, fontSize = 11.sp)
+                }
+            }
+            if (ownEntries.isNotEmpty()) {
+                item {
+                    PoolCard {
+                        Text("Paylaştığım kuponlar", color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        ownEntries.forEach { own ->
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(own.title, color = TextSecondary, fontSize = 12.sp,
+                                    modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Button(
+                                    onClick = {
+                                        scope.launch {
+                                            loading = true
+                                            repository.withdraw(own.id)
+                                                .onSuccess { message = "Paylaşım kaldırıldı."; refresh() }
+                                                .onFailure { message = it.message.orEmpty() }
+                                            loading = false
+                                        }
+                                    },
+                                    enabled = !loading,
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4B2631))
+                                ) { Text("Kaldır", fontSize = 11.sp) }
+                            }
+                        }
+                    }
                 }
             }
             if (ranked.isEmpty() && !loading) {
