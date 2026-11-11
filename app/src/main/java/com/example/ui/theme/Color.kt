@@ -22,7 +22,7 @@ val VibrantRed = Color(0xFFEF4444)           // Alert Red
 // Typography Tones for Pro Dark Theme
 val TextPrimary = Color(0xFFF8FAFC)          // Crisp Bright White
 val TextSecondary = Color(0xFFCBD5E1)        // Silver Slate
-val TextMuted = Color(0xFF718096)            // Muted Charcoal Slate
+val TextMuted = Color(0xFF94A3B8)            // Muted Charcoal Slate
 
 // Outcome Chip Colors (Dark Sportsbook Theme)
 val HomeChipColor = Color(0xFF064E3B)
