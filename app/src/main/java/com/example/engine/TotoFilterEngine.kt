@@ -282,7 +282,7 @@ object TotoFilterEngine {
 
         return when (criteria.applicationMode) {
             FilterApplicationMode.PROBABILITY_STRICT -> violations == 0
-            FilterApplicationMode.GUARANTEE_FLEXIBLE -> violations <= 1
+            FilterApplicationMode.GUARANTEE_FLEXIBLE -> violations <= 1 && violations < criteria.activeFilterCount
         }
     }
 
@@ -327,19 +327,49 @@ object TotoFilterEngine {
     }
 
     /**
-     * Filters the full selected 15-match matrix BEFORE applying a coupon column cap.
-     * Never substitutes formula-reduced coupons or previously saved coupons as input.
-     * If the matrix exceeds the safe exact-evaluation limit, returns an explicit
-     * unsupported result instead of silently sampling or inventing columns.
+     * Filters an existing coupon's columns when provided. Otherwise filters the
+     * complete selected match matrix. Every result is a subset of its input;
+     * the coupon cap is applied only after evaluating the filter predicates.
      */
     fun filterSelectedMatrix(
         matches: List<TotoMatch>,
         criteria: TotoFilterCriteria,
         maxColumnsCap: Int? = null,
+        sourceColumns: List<TotoColumn>? = null,
         shouldCancel: () -> Boolean = { false }
     ): MatrixFilterResult {
-        if (matches.isEmpty()) {
+        if (sourceColumns == null && matches.isEmpty()) {
             return MatrixFilterResult(0, 0, emptyList(), isTooLarge = false)
+        }
+
+        // Re-filter the active coupon itself; never regenerate extra columns
+        // when the user opens filtering a second time or relaxes a condition.
+        if (sourceColumns != null) {
+            val initial = sourceColumns.size
+            if (initial > MAX_EXACT_MATRIX_COMBINATIONS) {
+                return MatrixFilterResult(initial, 0, emptyList(), isTooLarge = true)
+            }
+
+            val requested = when (maxColumnsCap) {
+                FormulaEngine.UNLIMITED_COLUMNS_CAP -> MAX_STORED_MATRIX_COLUMNS
+                null -> FormulaEngine.calculateSmartCap(matches)
+                else -> maxColumnsCap.coerceAtLeast(0)
+            }
+            val outputLimit = requested.coerceAtMost(MAX_STORED_MATRIX_COLUMNS)
+            val accepted = ArrayList<TotoColumn>(minOf(initial, outputLimit))
+            var matching = 0
+            for ((position, col) in sourceColumns.withIndex()) {
+                if (position % 1024 == 0 && shouldCancel()) {
+                    throw java.util.concurrent.CancellationException("Matrix filter preview superseded")
+                }
+                if (!criteria.isActive || evaluateColumn(col, criteria, matches)) {
+                    matching++
+                    if (accepted.size < outputLimit) {
+                        accepted.add(col.copy(index = accepted.size + 1))
+                    }
+                }
+            }
+            return MatrixFilterResult(initial, matching, accepted, isTooLarge = false)
         }
 
         val options = matches.map { match ->
