@@ -12,6 +12,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -66,6 +67,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.engine.FormulaEngine
@@ -431,9 +433,23 @@ fun CouponsScreen(
                     shape = RoundedCornerShape(10.dp),
                     border = androidx.compose.foundation.BorderStroke(1.dp, ElectricGreen.copy(alpha = 0.6f))
                 ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        Text("🏆 Canlı Kupon Havuzu", color = ElectricGreen, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                        Text("Üyelerin anonim kuponları • Canlı en iyi kolonlar", color = TextSecondary, fontSize = 11.sp)
+                    Column(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 14.dp),
+                        verticalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        Text(
+                            text = "🏆 Canlı Kupon Havuzu",
+                            color = ElectricGreen,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp,
+                            lineHeight = 20.sp
+                        )
+                        Text(
+                            text = "Üyelerin anonim kuponları • Canlı en iyi kolonlar",
+                            color = TextSecondary,
+                            fontSize = 12.sp,
+                            lineHeight = 17.sp
+                        )
                     }
                 }
                 // Canlı Maç & Yaşayan Kolon Takip Bannerı
@@ -453,33 +469,37 @@ fun CouponsScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 9.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                            .padding(horizontal = 14.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.Top
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(text = "🔴", fontSize = 16.sp)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Column {
-                                Text(
-                                    text = "Canlı Skor & Yaşayan Kolon Takibi",
-                                    color = TextPrimary,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.sp
-                                )
-                                Text(
-                                    text = "Maçlar oynandıkça 15, 14, 13 ikramiye durumunu izle",
-                                    color = TextSecondary,
-                                    fontSize = 10.sp
-                                )
-                            }
+                        Text(text = "🔴", fontSize = 18.sp)
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(5.dp)
+                        ) {
+                            Text(
+                                text = "Canlı Skor & Yaşayan Kolon Takibi",
+                                color = TextPrimary,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp,
+                                lineHeight = 20.sp,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = "Maçlar oynandıkça 15, 14, 13 ikramiye durumunu izle",
+                                color = TextSecondary,
+                                fontSize = 12.sp,
+                                lineHeight = 17.sp
+                            )
+                            Text(
+                                text = "Canlı İzle ▶",
+                                color = Color(0xFFFF727B),
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp
+                            )
                         }
-                        Text(
-                            text = "Canlı İzle ▶",
-                            color = VibrantRed,
-                            fontWeight = FontWeight.Black,
-                            fontSize = 11.sp
-                        )
                     }
                 }
 
@@ -492,7 +512,7 @@ fun CouponsScreen(
                         icon = Icons.Default.FilterAlt,
                         title = "Filtreler ile Ele",
                         badge = "Tasarruf ⚡",
-                        accentColor = Color(0xFFDC2626),
+                        accentColor = Color(0xFFFF727B),
                         modifier = Modifier.weight(1f),
                         onClick = onOpenFilterDialog
                     )
@@ -871,41 +891,53 @@ private fun CompactActionButton(
 ) {
     Box(
         modifier = modifier
-            .height(50.dp)
+            .defaultMinSize(minHeight = 72.dp)
             .clip(RoundedCornerShape(10.dp))
             .background(Color(0xFF141E31))
-            .border(1.dp, Color(0xFF22314A), RoundedCornerShape(10.dp))
+            .border(1.dp, Color(0xFF34445E), RoundedCornerShape(10.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 6.dp)
+            .padding(horizontal = 10.dp, vertical = 11.dp)
     ) {
         Row(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
                 modifier = Modifier
-                    .size(32.dp)
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(accentColor.copy(alpha = 0.15f)),
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(7.dp))
+                    .background(accentColor.copy(alpha = 0.17f)),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(imageVector = icon, contentDescription = null, tint = accentColor, modifier = Modifier.size(17.dp))
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = accentColor,
+                    modifier = Modifier.size(20.dp)
+                )
             }
-            Spacer(modifier = Modifier.width(8.dp))
-            Column {
+            Spacer(modifier = Modifier.width(9.dp))
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
                 Text(
                     text = title,
                     color = TextPrimary,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 11.5.sp,
-                    maxLines = 1
+                    fontSize = 13.sp,
+                    lineHeight = 17.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
                 )
                 Text(
                     text = badge,
                     color = accentColor,
                     fontWeight = FontWeight.SemiBold,
-                    fontSize = 9.5.sp,
-                    maxLines = 1
+                    fontSize = 11.sp,
+                    lineHeight = 15.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }
@@ -921,25 +953,37 @@ private fun CleanDuplicatesBanner(
             .fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
             .background(Color(0xFF0E2218))
-            .border(1.dp, ElectricGreen.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
+            .border(1.dp, ElectricGreen.copy(alpha = 0.65f), RoundedCornerShape(10.dp))
             .clickable(onClick = onCleanDuplicates)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        contentAlignment = Alignment.Center
+            .padding(horizontal = 14.dp, vertical = 14.dp)
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(imageVector = Icons.Default.CleaningServices, contentDescription = null, tint = ElectricGreen, modifier = Modifier.size(18.dp))
-            Spacer(modifier = Modifier.width(8.dp))
-            Column {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.CleaningServices,
+                contentDescription = null,
+                tint = ElectricGreen,
+                modifier = Modifier.size(22.dp)
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(5.dp)
+            ) {
                 Text(
                     text = "Kuponlarımdaki Benzer Kolonları Sil",
                     color = ElectricGreen,
-                    fontWeight = FontWeight.Black,
-                    fontSize = 12.sp
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp,
+                    lineHeight = 19.sp
                 )
                 Text(
                     text = "Gereksiz Kolonları Temizle & Bütçen Cebinde Kalsın",
                     color = TextSecondary,
-                    fontSize = 10.sp
+                    fontSize = 12.sp,
+                    lineHeight = 17.sp
                 )
             }
         }
@@ -1058,39 +1102,43 @@ fun CouponProbabilityStatsCard(
         modifier = modifier.fillMaxWidth().testTag("card_probability_stats")
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
-            // Header
-            Row(
+            // Let the title and analysis badge wrap independently on narrow displays.
+            Column(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Icon(
                         imageVector = Icons.Default.BarChart,
                         contentDescription = null,
                         tint = CasinoGold,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(20.dp)
                     )
-                    Spacer(modifier = Modifier.width(6.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = "Toplam İhtimal & Dağılım Paneli",
                         color = TextPrimary,
                         fontWeight = FontWeight.Black,
-                        fontSize = 13.sp
+                        fontSize = 15.sp,
+                        lineHeight = 20.sp,
+                        modifier = Modifier.weight(1f)
                     )
                 }
-
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(4.dp))
+                        .align(Alignment.End)
+                        .clip(RoundedCornerShape(6.dp))
                         .background(Color(0xFF0F172A))
-                        .border(0.8.dp, DarkCardBorder, RoundedCornerShape(4.dp))
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                        .border(1.dp, DarkCardBorder, RoundedCornerShape(6.dp))
+                        .padding(horizontal = 9.dp, vertical = 5.dp)
                 ) {
                     Text(
                         text = "$totalCols Kolon Analizi",
-                        color = ElectricCyan,
-                        fontSize = 10.sp,
+                        color = Color(0xFF38BDF8),
+                        fontSize = 11.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
@@ -1191,30 +1239,32 @@ private fun OutcomeStatBox(
 ) {
     Box(
         modifier = modifier
+            .defaultMinSize(minHeight = 110.dp)
             .clip(RoundedCornerShape(8.dp))
             .background(Color(0xFF0F172A))
-            .border(1.dp, accentColor.copy(alpha = 0.35f), RoundedCornerShape(8.dp))
+            .border(1.dp, accentColor.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
             .padding(8.dp)
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
             Text(
                 text = label,
                 color = TextSecondary,
-                fontSize = 10.sp,
+                fontSize = 11.sp,
+                lineHeight = 15.sp,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center
             )
-            Spacer(modifier = Modifier.height(2.dp))
+            Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = "%%%.1f".format(percentage),
                 color = accentColor,
                 fontWeight = FontWeight.Black,
-                fontSize = 15.sp
+                fontSize = 16.sp
             )
             Text(
                 text = "$count tercih",
-                color = TextMuted,
-                fontSize = 9.sp
+                color = TextSecondary,
+                fontSize = 10.5.sp
             )
             Spacer(modifier = Modifier.height(4.dp))
             // Progress Bar
