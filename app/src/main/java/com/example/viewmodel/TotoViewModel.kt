@@ -391,7 +391,19 @@ class TotoViewModel(
     // --- Local JSON Storage Operations ---
 
     fun saveCurrentCouponToJson(context: Context): Result<File> {
-        val coupon = _currentCoupon.value ?: return Result.failure(IllegalStateException("Kaydedilecek aktif kupon bulunamadı."))
+        val coupon = _currentCoupon.value
+            ?: return Result.failure(IllegalStateException("Kaydedilecek aktif kupon bulunamadı."))
+        return saveCouponToJson(context, coupon)
+    }
+
+    /** Saves the exact coupon the user selected, including filtered columns. */
+    fun saveCouponToJson(context: Context, coupon: Coupon): Result<File> {
+        if (coupon.columns.isEmpty()) {
+            return Result.failure(IllegalArgumentException("Kaydedilecek kolon yok. Önce kupon oluşturun."))
+        }
+        if (coupon.columns.any { it.predictions.size != 15 }) {
+            return Result.failure(IllegalArgumentException("Kupon yalnızca 15 maçlık geçerli kolonlar içermelidir."))
+        }
         return CouponJsonStorageManager.saveCouponToFile(context, coupon)
     }
 
