@@ -31,38 +31,6 @@ enum class MatchStatus(val label: String, val badgeColorHex: Long) {
     FINISHED("Bitti", 0xFF10B981)
 }
 
-enum class MatchAlertEventType(val label: String, val iconEmoji: String) {
-    MATCH_STARTED("Maç Başladı", "📢"),
-    GOAL_SCORED("GOOOOL!", "⚽"),
-    HALF_TIME("Devre Arası", "⏸️"),
-    MATCH_FINISHED("Maç Bitti", "🏁")
-}
-
-data class MatchAlertEvent(
-    val id: String = "alert_${System.currentTimeMillis()}_${(100..999).random()}",
-    val matchNumber: Int,
-    val homeTeam: String,
-    val awayTeam: String,
-    val eventType: MatchAlertEventType,
-    val scoreDisplay: String,
-    val minuteText: String,
-    val scoringTeam: String? = null,
-    val title: String,
-    val message: String,
-    val timestamp: Long = System.currentTimeMillis(),
-    val formattedTime: String = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date()),
-    val isRead: Boolean = false
-)
-
-data class NotificationPreferences(
-    val notifyOnMatchStart: Boolean = true,
-    val notifyOnGoal: Boolean = true,
-    val notifyOnMatchEnd: Boolean = true,
-    val notifyOnlyFavorites: Boolean = true,
-    val soundAndVibration: Boolean = true,
-    val inAppBannerEnabled: Boolean = true
-)
-
 data class MatchLiveScore(
     val matchNumber: Int,
     val homeTeam: String,
@@ -92,17 +60,6 @@ data class MatchLiveScore(
     val scoreDisplay: String
         get() = if (homeScore != null && awayScore != null) "$homeScore - $awayScore" else "- : -"
 }
-
-data class CouponSurvivalReport(
-    val totalColumns: Int,
-    val aliveFor15: Int,
-    val aliveFor14: Int,
-    val aliveFor13: Int,
-    val aliveFor12: Int,
-    val finishedMatchesCount: Int,
-    val liveMatchesCount: Int,
-    val remainingMatchesCount: Int
-)
 
 enum class FormulaType(val title: String, val description: String, val badge: String, val guaranteeTarget: Int = 14) {
     GUARANTEE_15("15 Garanti (Tam Kapsama)", "N-0: Seçimlerin hepsi tutarsa kesin 15 Garanti", "15 GARANTİ", 15),

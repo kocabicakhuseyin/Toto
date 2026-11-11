@@ -55,7 +55,6 @@ import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
 
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
-import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.SportsScore
 import com.example.ui.theme.VibrantRed
 
@@ -74,9 +73,7 @@ fun TopHeaderBar(
     onProfileClick: () -> Unit,
     onOpenWallet: () -> Unit = {},
     onLiveClick: () -> Unit = {},
-    onOpenNotifications: () -> Unit = {},
     liveMatchesCount: Int = 0,
-    unreadNotificationsCount: Int = 0,
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -223,47 +220,6 @@ fun TopHeaderBar(
                             color = Color.Black,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Black
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.width(6.dp))
-
-                // Notification Bell Pill
-                BadgedBox(
-                    badge = {
-                        if (unreadNotificationsCount > 0) {
-                            Badge(
-                                containerColor = VibrantRed,
-                                modifier = Modifier.size(14.dp)
-                            ) {
-                                Text(
-                                    text = "$unreadNotificationsCount",
-                                    color = Color.White,
-                                    fontSize = 8.5.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-                    },
-                    modifier = Modifier
-                        .clip(CircleShape)
-                        .clickable { onOpenNotifications() }
-                        .testTag("btn_top_bar_notifications")
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(28.dp)
-                            .clip(CircleShape)
-                            .background(DarkCard)
-                            .border(1.dp, if (unreadNotificationsCount > 0) VibrantRed else DarkCardBorder, CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Notifications,
-                            contentDescription = "Bildirimler",
-                            tint = if (unreadNotificationsCount > 0) CasinoGold else TextMuted,
-                            modifier = Modifier.size(15.dp)
                         )
                     }
                 }

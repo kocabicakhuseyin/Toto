@@ -1,19 +1,12 @@
 package com.example
 
-import android.Manifest
-import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.SystemBarStyle
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -31,7 +24,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.model.FormulaType
 import com.example.ui.components.AppNavTab
-import com.example.ui.components.InAppNotificationBannerView
 import com.example.ui.components.ModernBottomNavBar
 import com.example.ui.components.TopHeaderBar
 import com.example.ui.screens.CouponsScreen
@@ -41,7 +33,6 @@ import com.example.ui.screens.FormulaWizardDialog
 import com.example.ui.screens.ForumScreen
 import com.example.ui.screens.GooglePlayBillingDialog
 import com.example.ui.screens.MatchAnalysisScreen
-import com.example.ui.screens.MatchNotificationDialog
 import com.example.ui.screens.MatchResultsScreen
 import com.example.ui.screens.ProfileScreen
 import com.example.ui.screens.TotoFilterDialog
@@ -107,37 +98,20 @@ fun MainAppContent() {
     val targetColumnCap by viewModel.targetColumnCap.collectAsStateWithLifecycle()
 
     val liveScores by viewModel.liveScores.collectAsStateWithLifecycle()
-    val isLivePolling by viewModel.isLivePolling.collectAsStateWithLifecycle()
     val lastLiveUpdateTime by viewModel.lastLiveUpdateTime.collectAsStateWithLifecycle()
     val isRefreshingLiveScores by viewModel.isRefreshingLiveScores.collectAsStateWithLifecycle()
 
     val favoritedMatchNumbers by viewModel.favoritedMatchNumbers.collectAsStateWithLifecycle()
-    val notificationPreferences by viewModel.notificationPreferences.collectAsStateWithLifecycle()
-    val notificationHistory by viewModel.notificationHistory.collectAsStateWithLifecycle()
-    val activeInAppAlert by viewModel.activeInAppAlert.collectAsStateWithLifecycle()
-    var showNotificationDialog by remember { mutableStateOf(false) }
+    val liveScoreError by viewModel.liveScoreError.collectAsStateWithLifecycle()
 
     val liveMatchesCount = remember(liveScores) { liveScores.count { it.isLive } }
-    val unreadNotificationsCount = remember(notificationHistory) { notificationHistory.count { !it.isRead } }
-    val survivalReport = remember(currentCoupon, liveScores) {
-        viewModel.computeCouponSurvival(currentCoupon, liveScores)
-    }
-
-    // Permission launcher for Android 13+ (POST_NOTIFICATIONS)
-    val notificationPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { _ ->
-        // Dynamically checked before posting notifications
-    }
-
-    LaunchedEffect(context) {
-        viewModel.attachNotificationContext(context)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-        }
-    }
 
     var currentTab by remember { mutableStateOf(AppNavTab.HOME) }
+    LaunchedEffect(currentTab) {
+        val showLiveScores = currentTab == AppNavTab.RESULTS
+        viewModel.setLivePolling(showLiveScores)
+        if (showLiveScores) viewModel.pollLiveScoresNow()
+    }
     var showTxtDialog by remember { mutableStateOf(false) }
     var showExcelDialog by remember { mutableStateOf(false) }
     var showFormulaWizard by remember { mutableStateOf(false) }
@@ -157,9 +131,7 @@ fun MainAppContent() {
                 onProfileClick = { currentTab = AppNavTab.PROFILE },
                 onOpenWallet = { showGooglePlayDialog = true },
                 onLiveClick = { currentTab = AppNavTab.RESULTS },
-                liveMatchesCount = liveMatchesCount,
-                onOpenNotifications = { showNotificationDialog = true },
-                unreadNotificationsCount = unreadNotificationsCount
+                liveMatchesCount = liveMatchesCount
             )
         },
         bottomBar = {
@@ -226,17 +198,10 @@ fun MainAppContent() {
                 AppNavTab.RESULTS -> {
                     MatchResultsScreen(
                         liveScores = liveScores,
-                        isPolling = isLivePolling,
                         lastUpdateTime = lastLiveUpdateTime,
                         isRefreshing = isRefreshingLiveScores,
-                        currentCoupon = currentCoupon,
-                        survivalReport = survivalReport,
-                        favoritedMatchNumbers = favoritedMatchNumbers,
-                        onToggleFavorite = { viewModel.toggleFavoriteMatch(it) },
-                        onOpenNotifications = { showNotificationDialog = true },
-                        onTogglePolling = { viewModel.toggleLivePolling() },
-                        onPollNow = { viewModel.pollLiveScoresNow() },
-                        onNavigateToCoupons = { currentTab = AppNavTab.COUPONS }
+                        errorMessage = liveScoreError,
+                        onPollNow = { viewModel.pollLiveScoresNow() }
                     )
                 }
 
@@ -310,26 +275,6 @@ fun MainAppContent() {
                 }
             }
 
-            // Floating In-App Heads-Up Notification Banner (sliding down from top)
-            AnimatedVisibility(
-                visible = activeInAppAlert != null,
-                enter = slideInVertically(initialOffsetY = { -it }),
-                exit = slideOutVertically(targetOffsetY = { -it }),
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = 8.dp)
-            ) {
-                activeInAppAlert?.let { alert ->
-                    InAppNotificationBannerView(
-                        alert = alert,
-                        onDismiss = { viewModel.dismissInAppAlert() },
-                        onViewMatch = {
-                            viewModel.dismissInAppAlert()
-                            currentTab = AppNavTab.RESULTS
-                        }
-                    )
-                }
-            }
         }
     }
 
@@ -414,35 +359,4 @@ fun MainAppContent() {
         )
     }
 
-    if (showNotificationDialog) {
-        val hasNotificationPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            androidx.core.content.ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.POST_NOTIFICATIONS
-            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-        } else true
-
-        MatchNotificationDialog(
-            preferences = notificationPreferences,
-            history = notificationHistory,
-            favoritedMatchNumbers = favoritedMatchNumbers,
-            matches = liveScores,
-            hasSystemPermission = hasNotificationPermission,
-            onRequestPermission = {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                }
-            },
-            onUpdatePreferences = { viewModel.updateNotificationPreferences(it) },
-            onToggleFavorite = { viewModel.toggleFavoriteMatch(it) },
-            onSimulateTestAlert = { viewModel.simulateTestGoalAlert() },
-            onMarkAllAsRead = { viewModel.markAllAlertsAsRead() },
-            onClearHistory = { viewModel.clearNotificationHistory() },
-            onNavigateToResults = {
-                showNotificationDialog = false
-                currentTab = AppNavTab.RESULTS
-            },
-            onDismiss = { showNotificationDialog = false }
-        )
-    }
 }

@@ -19,6 +19,13 @@ android {
     versionCode = 1
     versionName = "1.0"
 
+    // For production, use a backend proxy so provider credentials are not
+    // exposed in the APK. The direct API key is a temporary development option.
+    val liveScoreKey = (providers.gradleProperty("API_FOOTBALL_KEY").orNull
+      ?: providers.environmentVariable("API_FOOTBALL_KEY").orNull ?: "")
+      .replace("\\", "\\\\").replace("\"", "\\\"")
+    buildConfigField("String", "API_FOOTBALL_KEY", "\"$liveScoreKey\"")
+
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
 
