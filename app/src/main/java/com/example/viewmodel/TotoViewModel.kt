@@ -88,6 +88,21 @@ class TotoViewModel(
     val liveScores: StateFlow<List<MatchLiveScore>> = bulletinRepository.liveScores
     val liveScoreProvider: StateFlow<String> = bulletinRepository.liveScoreProvider
 
+    private val _hasApiFootballKey = MutableStateFlow(bulletinRepository.hasApiFootballKey())
+    val hasApiFootballKey: StateFlow<Boolean> = _hasApiFootballKey.asStateFlow()
+
+    private val _freeScoreRequestsRemaining =
+        MutableStateFlow(bulletinRepository.freeScoreRequestsRemaining())
+    val freeScoreRequestsRemaining: StateFlow<Int?> = _freeScoreRequestsRemaining.asStateFlow()
+
+    fun saveApiFootballKey(key: String) {
+        bulletinRepository.configureApiFootballKey(key)
+        _hasApiFootballKey.value = bulletinRepository.hasApiFootballKey()
+        _freeScoreRequestsRemaining.value = bulletinRepository.freeScoreRequestsRemaining()
+        _liveScoreError.value = null
+        if (_hasApiFootballKey.value) pollLiveScoresNow()
+    }
+
     private val _isLivePolling = MutableStateFlow(false)
     val isLivePolling: StateFlow<Boolean> = _isLivePolling.asStateFlow()
 
@@ -108,7 +123,8 @@ class TotoViewModel(
         refreshBulletin(forceRefresh = false)
         generateCoupon(FormulaType.GUARANTEE_14, "14 Garanti (N-1) Özel Başlangıç Kuponu")
 
-        // Refresh only while the live-score page is visible, at most once/minute.
+        // Free API-Football: poll only while the score page is visible.
+        // The repository also enforces an independent three-minute throttle.
         viewModelScope.launch {
             val timeFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
             while (true) {
@@ -118,8 +134,9 @@ class TotoViewModel(
                         _liveScoreError.value = null
                         _lastLiveUpdateTime.value = timeFormat.format(Date())
                     }.onFailure { _liveScoreError.value = it.message ?: "Canlı veri alınamadı." }
+                    _freeScoreRequestsRemaining.value = bulletinRepository.freeScoreRequestsRemaining()
                 }
-                delay(60_000L)
+                delay(180_000L)
             }
         }
 
@@ -448,6 +465,7 @@ class TotoViewModel(
             }.onFailure {
                 _liveScoreError.value = it.message ?: "Canlı veri alınamadı."
             }
+            _freeScoreRequestsRemaining.value = bulletinRepository.freeScoreRequestsRemaining()
             delay(300)
             _isRefreshingLiveScores.value = false
         }
