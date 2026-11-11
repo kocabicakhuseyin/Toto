@@ -17,12 +17,14 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.model.Coupon
 import com.example.model.FormulaType
 import com.example.model.NesineReceiptParser
 import com.example.ui.components.AppNavTab
@@ -48,6 +50,9 @@ import com.example.data.local.AppDatabase
 import com.example.data.repository.WalletRepository
 import com.example.repository.PoolRepository
 import com.example.viewmodel.BillingViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
     private var incomingNesineUrl by mutableStateOf<String?>(null)
@@ -95,6 +100,7 @@ fun MainAppContent(incomingNesineUrl: String? = null, onNesineUrlHandled: () -> 
         WalletRepository(AppDatabase.getInstance(context).walletDao())
     }
     val poolRepository = remember { PoolRepository(context) }
+    val saveScope = rememberCoroutineScope()
     val viewModel: TotoViewModel = viewModel(
         factory = object : androidx.lifecycle.ViewModelProvider.Factory {
             override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
@@ -132,6 +138,31 @@ fun MainAppContent(incomingNesineUrl: String? = null, onNesineUrlHandled: () -> 
 
     val favoritedMatchNumbers by viewModel.favoritedMatchNumbers.collectAsStateWithLifecycle()
     val liveScoreError by viewModel.liveScoreError.collectAsStateWithLifecycle()
+
+    val saveCouponToDevice: (Coupon) -> Unit = { coupon ->
+        if (coupon.totalColumns == 0) {
+            Toast.makeText(context, "Kaydedilecek kolon bulunmuyor.", Toast.LENGTH_SHORT).show()
+        } else {
+            saveScope.launch {
+                val result = withContext(Dispatchers.IO) {
+                    viewModel.saveCouponToJson(context, coupon)
+                }
+                result.onSuccess { file ->
+                    Toast.makeText(
+                        context,
+                        "Kupon kaydedildi: ${file.name} • Kayıtlı JSON Aç bölümünden erişebilirsiniz.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }.onFailure { error ->
+                    Toast.makeText(
+                        context,
+                        "Kupon kaydedilemedi: ${error.message ?: "Bilinmeyen hata"}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }
+    }
 
     val liveMatchesCount = remember(liveScores) { liveScores.count { it.isLive } }
 
@@ -269,14 +300,7 @@ fun MainAppContent(incomingNesineUrl: String? = null, onNesineUrlHandled: () -> 
                         },
                         onOpenWizard = { showFormulaWizard = true },
                         onOpenFilterDialog = { showFilterDialog = true },
-                        onSaveCouponToJson = { coupon ->
-                            val res = viewModel.saveCurrentCouponToJson(context)
-                            res.onSuccess { file ->
-                                Toast.makeText(context, "Kupon cihaz hafızasına JSON olarak kaydedildi:\n${file.name}", Toast.LENGTH_LONG).show()
-                            }.onFailure { err ->
-                                Toast.makeText(context, "Kayıt hatası: ${err.message}", Toast.LENGTH_SHORT).show()
-                            }
-                        },
+                        onSaveCouponToJson = saveCouponToDevice,
                         onLoadSavedJsonCoupons = {
                             viewModel.listSavedJsonCoupons(context)
                         },
@@ -384,11 +408,12 @@ fun MainAppContent(incomingNesineUrl: String? = null, onNesineUrlHandled: () -> 
             targetColumnCap = targetColumnCap,
             sourceColumns = viewModel.currentFilterSourceColumns(),
             onDismiss = { showFilterDialog = false },
-            onApplyFilters = { criteria, matrixResult ->
-                viewModel.applyFiltersAndEliminate(
+            onApplyFilters = { criteria, matrixResult, saveToDevice ->
+                val coupon = viewModel.applyFiltersAndEliminate(
                     criteria = criteria,
                     precomputedMatrix = matrixResult
                 )
+                if (saveToDevice) saveCouponToDevice(coupon)
                 currentTab = AppNavTab.COUPONS
             }
         )
