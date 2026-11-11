@@ -49,6 +49,7 @@ import androidx.compose.ui.platform.LocalContext
 import com.example.data.local.AppDatabase
 import com.example.data.repository.WalletRepository
 import com.example.repository.PoolRepository
+import com.example.repository.SporTotoBulletinRepositoryImpl
 import com.example.viewmodel.BillingViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -105,7 +106,12 @@ fun MainAppContent(incomingNesineUrl: String? = null, onNesineUrlHandled: () -> 
         factory = object : androidx.lifecycle.ViewModelProvider.Factory {
             override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
                 @Suppress("UNCHECKED_CAST")
-                return TotoViewModel(walletRepository = walletRepository) as T
+                return TotoViewModel(
+                    bulletinRepository = SporTotoBulletinRepositoryImpl(
+                        applicationContext = context.applicationContext
+                    ),
+                    walletRepository = walletRepository
+                ) as T
             }
         }
     )
@@ -133,6 +139,8 @@ fun MainAppContent(incomingNesineUrl: String? = null, onNesineUrlHandled: () -> 
     val liveScores by viewModel.liveScores.collectAsStateWithLifecycle()
     val currentBulletin by viewModel.currentBulletin.collectAsStateWithLifecycle()
     val liveScoreProvider by viewModel.liveScoreProvider.collectAsStateWithLifecycle()
+    val hasApiFootballKey by viewModel.hasApiFootballKey.collectAsStateWithLifecycle()
+    val freeScoreRequestsRemaining by viewModel.freeScoreRequestsRemaining.collectAsStateWithLifecycle()
     val lastLiveUpdateTime by viewModel.lastLiveUpdateTime.collectAsStateWithLifecycle()
     val isRefreshingLiveScores by viewModel.isRefreshingLiveScores.collectAsStateWithLifecycle()
 
@@ -275,6 +283,9 @@ fun MainAppContent(incomingNesineUrl: String? = null, onNesineUrlHandled: () -> 
                     MatchResultsScreen(
                         liveScores = liveScores,
                         providerName = liveScoreProvider,
+                        hasApiKey = hasApiFootballKey,
+                        freeRequestsRemaining = freeScoreRequestsRemaining,
+                        onSaveApiKey = { viewModel.saveApiFootballKey(it) },
                         lastUpdateTime = lastLiveUpdateTime,
                         isRefreshing = isRefreshingLiveScores,
                         errorMessage = liveScoreError,
