@@ -222,4 +222,90 @@ class TotoFilterEngineTest {
         // NOT truncated or capped to 48!
         assertTrue("Filtered columns size (${filteredCoupon.totalColumns}) should not be forced to 48!", filteredCoupon.totalColumns > 48)
     }
+
+    @Test
+    fun testMatrixFiltersBeforeColumnCap() {
+        val matchesWithDoubles = testMatches.mapIndexed { idx, match ->
+            if (idx < 4) match.copy(
+                selections = setOf(PredictionOutcome.HOME, PredictionOutcome.DRAW)
+            ) else match.copy(selections = setOf(PredictionOutcome.HOME))
+        }
+        val criteria = TotoFilterCriteria(
+            applicationMode = FilterApplicationMode.PROBABILITY_STRICT,
+            allowedTotalDraws = setOf(2)
+        )
+
+        // 2^4 = 16 source columns, C(4,2) = 6 passing columns.
+        // A coupon cap of 2 must be applied ONLY after all 16 are checked.
+        val result = TotoFilterEngine.filterSelectedMatrix(
+            matchesWithDoubles, criteria, maxColumnsCap = 2
+        )
+        assertEquals(16, result.initialColumnCount)
+        assertEquals(6, result.matchingColumnCount)
+        assertEquals(2, result.savedColumnCount)
+        assertTrue(result.isLimitedByCap)
+        assertTrue(result.columns.all { col -> col.predictions.count { it == PredictionOutcome.DRAW } == 2 })
+    }
+
+    @Test
+    fun testFull41472ColumnMatrixMatchesReferenceFilter() {
+        val selections = testMatches.mapIndexed { index, match ->
+            val options = when {
+                index < 4 -> setOf(PredictionOutcome.HOME, PredictionOutcome.DRAW, PredictionOutcome.AWAY)
+                index < 13 -> setOf(PredictionOutcome.HOME, PredictionOutcome.DRAW)
+                else -> setOf(PredictionOutcome.HOME)
+            }
+            match.copy(selections = options)
+        }
+        // The previous implementation filtered a formula-reduced sample instead of
+        // all 4 triple + 9 double positions (3^4 * 2^9 = 41472 columns).
+        val criteria = TotoFilterCriteria(
+            allowedTotalDraws = setOf(3, 4),
+            allowedDraws1To9 = setOf(2, 3),
+            allowedDraws10To15 = setOf(1, 2),
+            maxConsecutive1s = 3,
+            maxConsecutive2s = 2
+        )
+        val reference = com.example.engine.FormulaEngine.generateAllCombinations(selections, 50000)
+        val expected = TotoFilterEngine.filterColumns(reference, criteria, selections)
+        val actual = TotoFilterEngine.filterSelectedMatrix(
+            selections, criteria,
+            maxColumnsCap = com.example.engine.FormulaEngine.UNLIMITED_COLUMNS_CAP
+        )
+        assertEquals(41472, reference.size)
+        assertEquals(41472, actual.initialColumnCount)
+        assertEquals(expected.size, actual.matchingColumnCount)
+        assertEquals(expected.map { it.asString }.toSet(), actual.columns.map { it.asString }.toSet())
+        assertFalse(actual.isTooLarge)
+    }
+
+    @Test
+    fun testImpossibleFiltersDoNotRestoreRejectedColumns() {
+        val fixed = testMatches.map { it.copy(selections = setOf(PredictionOutcome.HOME)) }
+        val impossible = TotoFilterCriteria(allowedTotalDraws = setOf(16))
+        val result = TotoFilterEngine.filterSelectedMatrix(fixed, impossible)
+        assertEquals(1, result.initialColumnCount)
+        assertEquals(0, result.matchingColumnCount)
+        assertTrue(result.columns.isEmpty())
+
+        val vm = com.example.viewmodel.TotoViewModel()
+        val coupon = vm.applyFiltersAndEliminate(impossible)
+        assertEquals(0, coupon.totalColumns)
+    }
+
+    @Test
+    fun testOversizedMatrixIsNotSilentlySampled() {
+        val manyTriples = testMatches.mapIndexed { index, match ->
+            if (index < 13) match.copy(
+                selections = setOf(PredictionOutcome.HOME, PredictionOutcome.DRAW, PredictionOutcome.AWAY)
+            ) else match.copy(selections = setOf(PredictionOutcome.HOME))
+        }
+        val result = TotoFilterEngine.filterSelectedMatrix(
+            manyTriples, TotoFilterCriteria(allowedTotalDraws = setOf(3))
+        )
+        assertEquals(1_594_323, result.initialColumnCount)
+        assertTrue(result.isTooLarge)
+        assertTrue(result.columns.isEmpty())
+    }
+
 }
