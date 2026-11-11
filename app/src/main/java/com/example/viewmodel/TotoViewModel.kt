@@ -58,6 +58,14 @@ class TotoViewModel(
     private val _currentCoupon = MutableStateFlow<Coupon?>(null)
     val currentCoupon: StateFlow<Coupon?> = _currentCoupon.asStateFlow()
 
+    // The active coupon can be filtered again only while its original match
+    // selections remain unchanged. This prevents stale starter coupons from
+    // replacing the user's newly chosen 15-match matrix.
+    private var currentCouponSourceMatches: List<TotoMatch>? = null
+
+    fun currentFilterSourceColumns(): List<TotoColumn>? =
+        if (currentCouponSourceMatches == _matches.value) _currentCoupon.value?.columns else null
+
     private val _forumPosts = MutableStateFlow<List<ForumPost>>(createInitialForumPosts())
     val forumPosts: StateFlow<List<ForumPost>> = _forumPosts.asStateFlow()
 
@@ -304,6 +312,7 @@ class TotoViewModel(
         )
         _coupons.update { listOf(newCoupon) + it }
         _currentCoupon.value = newCoupon
+        currentCouponSourceMatches = _matches.value
         _userProfile.update { it.copy(totalAutoPlayedCoupons = it.totalAutoPlayedCoupons + 1) }
         return newCoupon
     }
@@ -327,9 +336,9 @@ class TotoViewModel(
     }
 
     /**
-     * Applies filters to the complete set of user-selected matrix combinations.
-     * Precomputed results from the background preview are reused without rescanning.
-     * A column limit is applied only AFTER checking all selected combinations.
+     * Re-filters only the active coupon when its match selections are unchanged;
+     * otherwise starts from the user's new matrix. Never expands a filtered
+     * coupon by regenerating combinations during successive filter operations.
      */
     fun applyFiltersAndEliminate(
         criteria: com.example.model.TotoFilterCriteria,
@@ -340,7 +349,8 @@ class TotoViewModel(
         val result = precomputedMatrix ?: com.example.engine.TotoFilterEngine.filterSelectedMatrix(
             matches = _matches.value,
             criteria = criteria,
-            maxColumnsCap = _targetColumnCap.value
+            maxColumnsCap = _targetColumnCap.value,
+            sourceColumns = currentFilterSourceColumns()
         )
 
         if (result.isTooLarge) {
@@ -374,6 +384,7 @@ class TotoViewModel(
 
         _coupons.update { listOf(newCoupon) + it }
         _currentCoupon.value = newCoupon
+        currentCouponSourceMatches = _matches.value
         return newCoupon
     }
 
@@ -395,6 +406,7 @@ class TotoViewModel(
                 else listOf(loaded) + existing
             }
             _currentCoupon.value = loaded
+            currentCouponSourceMatches = _matches.value
         }
     }
 
@@ -459,6 +471,7 @@ class TotoViewModel(
         )
         _coupons.update { listOf(coupon) + it }
         _currentCoupon.value = coupon
+        currentCouponSourceMatches = _matches.value
         return coupon
     }
 
@@ -479,12 +492,14 @@ class TotoViewModel(
 
     fun setCurrentCoupon(coupon: Coupon) {
         _currentCoupon.value = coupon
+        currentCouponSourceMatches = _matches.value
     }
 
     fun deleteCoupon(couponId: String) {
         _coupons.update { list -> list.filter { it.id != couponId } }
         if (_currentCoupon.value?.id == couponId) {
             _currentCoupon.value = _coupons.value.firstOrNull()
+            currentCouponSourceMatches = null
         }
     }
 
