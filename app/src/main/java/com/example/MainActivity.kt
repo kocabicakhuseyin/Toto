@@ -382,6 +382,7 @@ fun MainAppContent(incomingNesineUrl: String? = null, onNesineUrlHandled: () -> 
             initialCriteria = filterCriteria,
             matches = matches,
             targetColumnCap = targetColumnCap,
+            sourceColumns = viewModel.currentFilterSourceColumns(),
             onDismiss = { showFilterDialog = false },
             onApplyFilters = { criteria, matrixResult ->
                 viewModel.applyFiltersAndEliminate(
