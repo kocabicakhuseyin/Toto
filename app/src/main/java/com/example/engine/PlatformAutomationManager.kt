@@ -33,7 +33,7 @@ object PlatformAutomationManager {
             sb.append("Kolon ${col.index.toString().padStart(2, '0')}: ${col.asString}\n")
         }
         sb.append("---------------------------------\n")
-        sb.append("Hedef 15 Çoklu Platform Otomasyonu\n")
+        sb.append("Spor Toto Çoklu Platform Otomasyonu\n")
         return sb.toString()
     }
 

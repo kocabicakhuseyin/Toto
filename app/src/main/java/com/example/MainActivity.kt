@@ -1,6 +1,7 @@
 package com.example
 
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -28,10 +29,13 @@ import com.example.ui.screens.FormulaWizardDialog
 import com.example.ui.screens.ForumScreen
 import com.example.ui.screens.GooglePlayBillingDialog
 import com.example.ui.screens.MatchAnalysisScreen
+import com.example.ui.screens.MatchResultsScreen
 import com.example.ui.screens.ProfileScreen
+import com.example.ui.screens.TotoFilterDialog
 import com.example.ui.screens.TxtImportDialog
 import com.example.ui.theme.MyApplicationTheme
 import com.example.viewmodel.TotoViewModel
+import com.example.engine.FormulaEngine
 
 import androidx.compose.ui.platform.LocalContext
 import com.example.data.local.AppDatabase
@@ -82,12 +86,26 @@ fun MainAppContent() {
     val forumPosts by viewModel.forumPosts.collectAsStateWithLifecycle()
     val userProfile by viewModel.userProfile.collectAsStateWithLifecycle()
     val isRefreshingBulletin by viewModel.isRefreshingBulletin.collectAsStateWithLifecycle()
+    val filterCriteria by viewModel.filterCriteria.collectAsStateWithLifecycle()
+    val selectedFormula by viewModel.selectedFormula.collectAsStateWithLifecycle()
+    val targetColumnCap by viewModel.targetColumnCap.collectAsStateWithLifecycle()
+
+    val liveScores by viewModel.liveScores.collectAsStateWithLifecycle()
+    val isLivePolling by viewModel.isLivePolling.collectAsStateWithLifecycle()
+    val lastLiveUpdateTime by viewModel.lastLiveUpdateTime.collectAsStateWithLifecycle()
+    val isRefreshingLiveScores by viewModel.isRefreshingLiveScores.collectAsStateWithLifecycle()
+
+    val liveMatchesCount = remember(liveScores) { liveScores.count { it.isLive } }
+    val survivalReport = remember(currentCoupon, liveScores) {
+        viewModel.computeCouponSurvival(currentCoupon, liveScores)
+    }
 
     var currentTab by remember { mutableStateOf(AppNavTab.HOME) }
     var showTxtDialog by remember { mutableStateOf(false) }
     var showExcelDialog by remember { mutableStateOf(false) }
     var showFormulaWizard by remember { mutableStateOf(false) }
     var showGooglePlayDialog by remember { mutableStateOf(false) }
+    var showFilterDialog by remember { mutableStateOf(false) }
 
     // Back button returns to Home tab if inside a subscreen
     BackHandler(enabled = currentTab != AppNavTab.HOME) {
@@ -100,13 +118,16 @@ fun MainAppContent() {
             TopHeaderBar(
                 userProfile = userProfile,
                 onProfileClick = { currentTab = AppNavTab.PROFILE },
-                onOpenWallet = { showGooglePlayDialog = true }
+                onOpenWallet = { showGooglePlayDialog = true },
+                onLiveClick = { currentTab = AppNavTab.RESULTS },
+                liveMatchesCount = liveMatchesCount
             )
         },
         bottomBar = {
             ModernBottomNavBar(
                 currentTab = currentTab,
                 couponsCount = coupons.size,
+                liveMatchesCount = liveMatchesCount,
                 onTabSelected = { currentTab = it }
             )
         }
@@ -141,14 +162,37 @@ fun MainAppContent() {
                         },
                         onSelectAllFavorites = { viewModel.selectAllFavorites() },
                         onApplyQuickDoubles = { viewModel.applyQuickDoubles() },
+                        onApplyQuickDoubles10To15 = { viewModel.applyQuickDoubles10To15() },
+                        onApplyQuickDoubles1To9 = { viewModel.applyQuickDoubles1To9() },
                         onClearAll = { viewModel.clearAllSelections() },
                         onGenerateCoupon = {
                             viewModel.generateCoupon(FormulaType.GUARANTEE_14)
                             currentTab = AppNavTab.COUPONS
                         },
                         onOpenFormulaWizard = { showFormulaWizard = true },
+                        onOpenFilterDialog = { showFilterDialog = true },
+                        targetColumnCap = targetColumnCap,
+                        onSelectTargetColumnCap = { viewModel.setTargetColumnCap(it) },
+                        onApplyFilterProfile = { profile ->
+                            viewModel.applyFilterProfile(profile)
+                            currentTab = AppNavTab.COUPONS
+                        },
                         isRefreshing = isRefreshingBulletin,
                         onRefreshBulletin = { viewModel.refreshBulletin(forceRefresh = true) }
+                    )
+                }
+
+                AppNavTab.RESULTS -> {
+                    MatchResultsScreen(
+                        liveScores = liveScores,
+                        isPolling = isLivePolling,
+                        lastUpdateTime = lastLiveUpdateTime,
+                        isRefreshing = isRefreshingLiveScores,
+                        currentCoupon = currentCoupon,
+                        survivalReport = survivalReport,
+                        onTogglePolling = { viewModel.toggleLivePolling() },
+                        onPollNow = { viewModel.pollLiveScoresNow() },
+                        onNavigateToCoupons = { currentTab = AppNavTab.COUPONS }
                     )
                 }
 
@@ -168,7 +212,34 @@ fun MainAppContent() {
                         onShareToForum = { coupon ->
                             viewModel.addForumPost("Garantili ${coupon.formulaType.badge} kuponumu inceleyebilirsiniz (${coupon.totalColumns} kolon)!", coupon.id)
                         },
-                        onOpenWizard = { showFormulaWizard = true }
+                        onOpenWizard = { showFormulaWizard = true },
+                        onOpenFilterDialog = { showFilterDialog = true },
+                        onSaveCouponToJson = { coupon ->
+                            val res = viewModel.saveCurrentCouponToJson(context)
+                            res.onSuccess { file ->
+                                Toast.makeText(context, "Kupon cihaz hafızasına JSON olarak kaydedildi:\n${file.name}", Toast.LENGTH_LONG).show()
+                            }.onFailure { err ->
+                                Toast.makeText(context, "Kayıt hatası: ${err.message}", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        onLoadSavedJsonCoupons = {
+                            viewModel.listSavedJsonCoupons(context)
+                        },
+                        onLoadCouponFromFile = { file ->
+                            val res = viewModel.loadCouponFromJsonFile(file)
+                            res.onSuccess { loaded ->
+                                Toast.makeText(context, "'${loaded.title}' başarıyla açıldı!", Toast.LENGTH_SHORT).show()
+                            }.onFailure {
+                                Toast.makeText(context, "Dosya okuma hatası: ${it.message}", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        onDeleteSavedJsonFile = { file ->
+                            val deleted = viewModel.deleteSavedJsonCoupon(file)
+                            if (deleted) {
+                                Toast.makeText(context, "Kayıtlı dosya silindi.", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        onNavigateToLiveResults = { currentTab = AppNavTab.RESULTS }
                     )
                 }
 
@@ -200,6 +271,7 @@ fun MainAppContent() {
     if (showFormulaWizard) {
         FormulaWizardDialog(
             initialFormula = FormulaType.GUARANTEE_14,
+            matches = matches,
             onDismiss = { showFormulaWizard = false },
             onConfirmFormula = { formula ->
                 viewModel.selectFormula(formula)
@@ -244,6 +316,35 @@ fun MainAppContent() {
             onDismiss = { showGooglePlayDialog = false },
             onPurchaseSuccess = { pkg ->
                 viewModel.topUpWallet(pkg)
+            }
+        )
+    }
+
+    if (showFilterDialog) {
+        val hasVariables = matches.any { it.selections.size > 1 }
+        val isUnlimited = targetColumnCap == FormulaEngine.UNLIMITED_COLUMNS_CAP
+        val candidateCols = if (hasVariables) {
+            if (isUnlimited) {
+                FormulaEngine.generateAllCombinations(matches, limit = 65536)
+            } else {
+                FormulaEngine.generateColumns(matches, selectedFormula, maxColumnsCap = targetColumnCap)
+            }
+        } else {
+            val cur = currentCoupon?.columns
+            if (cur != null && cur.size > 1) cur
+            else {
+                if (isUnlimited) FormulaEngine.generateAllCombinations(matches, limit = 65536)
+                else FormulaEngine.generateColumns(matches, selectedFormula, maxColumnsCap = targetColumnCap)
+            }
+        }
+        TotoFilterDialog(
+            initialCriteria = filterCriteria,
+            matches = matches,
+            candidateColumns = candidateCols,
+            onDismiss = { showFilterDialog = false },
+            onApplyFilters = { criteria ->
+                viewModel.applyFiltersAndEliminate(criteria)
+                currentTab = AppNavTab.COUPONS
             }
         )
     }

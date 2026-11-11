@@ -33,11 +33,17 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.FilterAlt
 import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.ReceiptLong
+import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.SportsScore
+import com.example.data.local.SavedJsonCouponMeta
+import java.io.File
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -101,11 +107,18 @@ fun CouponsScreen(
     onDeductFeeAndPlay: (Coupon) -> Boolean,
     onShareToForum: (Coupon) -> Unit = {},
     onOpenWizard: () -> Unit = {},
+    onOpenFilterDialog: () -> Unit = {},
+    onSaveCouponToJson: (Coupon) -> Unit = {},
+    onLoadSavedJsonCoupons: () -> List<SavedJsonCouponMeta> = { emptyList() },
+    onLoadCouponFromFile: (File) -> Unit = {},
+    onDeleteSavedJsonFile: (File) -> Unit = {},
+    onNavigateToLiveResults: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     var selectedPlatformForPlay by remember { mutableStateOf<BettingPlatform?>(null) }
     var showSiteSelectionDialog by remember { mutableStateOf(false) }
+    var showSavedJsonDialog by remember { mutableStateOf(false) }
 
     if (coupons.isEmpty()) {
         Box(
@@ -403,45 +416,151 @@ fun CouponsScreen(
             }
         }
 
-        // 3. ACTION BUTTONS (Share, Link, Excel)
+        // 3. ACTION BUTTONS (Compact 2x2 Sportsbook Grid)
         item {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                // Kuponumu Toplulukta Paylaş
-                CasinoActionButton(
-                    icon = Icons.Default.Forum,
-                    title = "Kuponumu Topluluk / Forumda Paylaş",
-                    onClick = {
-                        onShareToForum(activeCoupon)
-                        Toast.makeText(context, "Kuponunuz foruma başarıyla paylaşıldı!", Toast.LENGTH_SHORT).show()
-                    }
-                )
-
-                // Kupon Linkini Paylaş
-                CasinoActionButton(
-                    icon = Icons.Default.Share,
-                    title = "Kupon Linkini & Kodunu Paylaş",
-                    onClick = {
-                        val txt = PlatformAutomationManager.formatCouponForPlatform(activeCoupon, BettingPlatform.NESINE, savedCredentials)
-                        val sendIntent = Intent().apply {
-                            action = Intent.ACTION_SEND
-                            putExtra(Intent.EXTRA_TEXT, txt)
-                            type = "text/plain"
+                // Canlı Maç & Yaşayan Kolon Takip Bannerı
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onNavigateToLiveResults() }
+                        .testTag("btn_coupons_track_live"),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1015)),
+                    shape = RoundedCornerShape(10.dp),
+                    border = CardDefaults.outlinedCardBorder().copy(
+                        brush = Brush.linearGradient(
+                            listOf(VibrantRed.copy(alpha = 0.8f), CasinoGold.copy(alpha = 0.5f))
+                        )
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 9.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(text = "🔴", fontSize = 16.sp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column {
+                                Text(
+                                    text = "Canlı Skor & Yaşayan Kolon Takibi",
+                                    color = TextPrimary,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp
+                                )
+                                Text(
+                                    text = "Maçlar oynandıkça 15, 14, 13 ikramiye durumunu izle",
+                                    color = TextSecondary,
+                                    fontSize = 10.sp
+                                )
+                            }
                         }
-                        context.startActivity(Intent.createChooser(sendIntent, "Kupon Linkini Paylaş"))
+                        Text(
+                            text = "Canlı İzle ▶",
+                            color = VibrantRed,
+                            fontWeight = FontWeight.Black,
+                            fontSize = 11.sp
+                        )
                     }
-                )
+                }
 
-                // Kuponları Excel Olarak İndir
-                CasinoActionButton(
-                    icon = Icons.Default.Download,
-                    title = "Kuponları Excel / CSV Olarak İndir & Kopyala",
-                    onClick = {
-                        val txt = FormulaEngine.exportToExtra1X2Txt(activeCoupon.columns)
-                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-                        clipboard?.setPrimaryClip(ClipData.newPlainText("Excel Spor Toto", txt))
-                        Toast.makeText(context, "Kupon verisi Excel/TXT formatında panoya kopyalandı!", Toast.LENGTH_SHORT).show()
-                    }
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // Filtreler ile Kolonları Ele
+                    CompactActionButton(
+                        icon = Icons.Default.FilterAlt,
+                        title = "Filtreler ile Ele",
+                        badge = "Tasarruf ⚡",
+                        accentColor = Color(0xFFDC2626),
+                        modifier = Modifier.weight(1f),
+                        onClick = onOpenFilterDialog
+                    )
+
+                    // Kuponumu Forumda Paylaş
+                    CompactActionButton(
+                        icon = Icons.Default.Forum,
+                        title = "Forumda Paylaş",
+                        badge = "Topluluk",
+                        accentColor = ElectricCyan,
+                        modifier = Modifier.weight(1f),
+                        onClick = {
+                            onShareToForum(activeCoupon)
+                            Toast.makeText(context, "Kuponunuz foruma başarıyla paylaşıldı!", Toast.LENGTH_SHORT).show()
+                        }
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // Kupon Linkini Paylaş
+                    CompactActionButton(
+                        icon = Icons.Default.Share,
+                        title = "Link & Kod Paylaş",
+                        badge = "Kupon No",
+                        accentColor = CasinoGold,
+                        modifier = Modifier.weight(1f),
+                        onClick = {
+                            val txt = PlatformAutomationManager.formatCouponForPlatform(activeCoupon, BettingPlatform.NESINE, savedCredentials)
+                            val sendIntent = Intent().apply {
+                                action = Intent.ACTION_SEND
+                                putExtra(Intent.EXTRA_TEXT, txt)
+                                type = "text/plain"
+                            }
+                            context.startActivity(Intent.createChooser(sendIntent, "Kupon Linkini Paylaş"))
+                        }
+                    )
+
+                    // Kuponları Excel Olarak İndir
+                    CompactActionButton(
+                        icon = Icons.Default.Download,
+                        title = "Excel / TXT İndir",
+                        badge = "Dışa Aktar",
+                        accentColor = ElectricGreen,
+                        modifier = Modifier.weight(1f),
+                        onClick = {
+                            val txt = FormulaEngine.exportToExtra1X2Txt(activeCoupon.columns)
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                            clipboard?.setPrimaryClip(ClipData.newPlainText("Excel Spor Toto", txt))
+                            Toast.makeText(context, "Kupon verisi Excel/TXT formatında panoya kopyalandı!", Toast.LENGTH_SHORT).show()
+                        }
+                    )
+                }
+
+                // Row 3: JSON Storage Actions (Kaydet & Aç)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // Cihaza JSON Kaydet
+                    CompactActionButton(
+                        icon = Icons.Default.Save,
+                        title = "Cihaza JSON Kaydet",
+                        badge = "Yerel Yedek 💾",
+                        accentColor = ElectricCyan,
+                        modifier = Modifier.weight(1f),
+                        onClick = {
+                            onSaveCouponToJson(activeCoupon)
+                        }
+                    )
+
+                    // Kayıtlı JSON Aç
+                    CompactActionButton(
+                        icon = Icons.Default.FolderOpen,
+                        title = "Kayıtlı JSON Aç",
+                        badge = "Dosyalar 📂",
+                        accentColor = CasinoGold,
+                        modifier = Modifier.weight(1f),
+                        onClick = {
+                            showSavedJsonDialog = true
+                        }
+                    )
+                }
 
                 // Benzer Kolonları Sil
                 CleanDuplicatesBanner(
@@ -450,6 +569,14 @@ fun CouponsScreen(
                     }
                 )
             }
+        }
+
+        // 3.5. TOTAL PROBABILITY & DISTRIBUTION STATISTICS CARD (Requested by user)
+        item {
+            CouponProbabilityStatsCard(
+                coupon = activeCoupon,
+                matches = matches
+            )
         }
 
         // 4. AUTHENTIC SPOR TOTO MATRIX TABLE VIEW (Requested by User)
@@ -491,6 +618,19 @@ fun CouponsScreen(
                 onSaveCredentials(creds)
                 selectedPlatformForPlay = null
             }
+        )
+    }
+
+    // SAVED JSON COUPONS MODAL DIALOG
+    if (showSavedJsonDialog) {
+        SavedJsonCouponsDialog(
+            onDismiss = { showSavedJsonDialog = false },
+            onLoadSavedList = onLoadSavedJsonCoupons,
+            onLoadCouponFromFile = { file ->
+                onLoadCouponFromFile(file)
+                showSavedJsonDialog = false
+            },
+            onDeleteSavedFile = onDeleteSavedJsonFile
         )
     }
 }
@@ -704,6 +844,58 @@ private fun CasinoActionButton(
 }
 
 @Composable
+private fun CompactActionButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    badge: String,
+    accentColor: Color,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = modifier
+            .height(50.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(Color(0xFF141E31))
+            .border(1.dp, Color(0xFF22314A), RoundedCornerShape(10.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 6.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxSize(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(accentColor.copy(alpha = 0.15f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(imageVector = icon, contentDescription = null, tint = accentColor, modifier = Modifier.size(17.dp))
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            Column {
+                Text(
+                    text = title,
+                    color = TextPrimary,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 11.5.sp,
+                    maxLines = 1
+                )
+                Text(
+                    text = badge,
+                    color = accentColor,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 9.5.sp,
+                    maxLines = 1
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun CleanDuplicatesBanner(
     onCleanDuplicates: () -> Unit
 ) {
@@ -788,4 +980,409 @@ private fun ModernColumnRow(column: TotoColumn) {
             }
         }
     }
+}
+
+/**
+ * Statistics panel showing the total probability distribution across all columns in the coupon.
+ * Displays Home (1) %, Draw (X) %, Away (2) % totals, coupon confidence index, and favorite/surprise breakdown.
+ */
+@Composable
+fun CouponProbabilityStatsCard(
+    coupon: Coupon,
+    matches: List<TotoMatch>,
+    modifier: Modifier = Modifier
+) {
+    val totalCols = coupon.columns.size
+    val totalPicks = (totalCols * 15).coerceAtLeast(1)
+
+    var count1 = 0
+    var countX = 0
+    var count2 = 0
+    var totalMatchProbSum = 0.0
+    var favoritePicks = 0
+
+    coupon.columns.forEach { col ->
+        col.predictions.forEachIndexed { matchIdx, pred ->
+            when (pred) {
+                PredictionOutcome.HOME -> count1++
+                PredictionOutcome.DRAW -> countX++
+                PredictionOutcome.AWAY -> count2++
+            }
+            val match = matches.getOrNull(matchIdx)
+            if (match != null) {
+                val h = match.probability.home.firstOrNull() ?: 50
+                val d = match.probability.draw.firstOrNull() ?: 25
+                val a = match.probability.away.firstOrNull() ?: 25
+                val pickProb = when (pred) {
+                    PredictionOutcome.HOME -> h
+                    PredictionOutcome.DRAW -> d
+                    PredictionOutcome.AWAY -> a
+                }
+                totalMatchProbSum += pickProb
+                val maxProb = maxOf(h, maxOf(d, a))
+                if (pickProb == maxProb) {
+                    favoritePicks++
+                }
+            }
+        }
+    }
+
+    val pct1 = (count1 * 100.0) / totalPicks
+    val pctX = (countX * 100.0) / totalPicks
+    val pct2 = (count2 * 100.0) / totalPicks
+    val confidenceScore = if (matches.isNotEmpty()) (totalMatchProbSum / totalPicks) else 65.0
+    val favoriteRatio = (favoritePicks * 100.0) / totalPicks
+    val surpriseRatio = (100.0 - favoriteRatio).coerceAtLeast(0.0)
+
+    Card(
+        colors = CardDefaults.cardColors(containerColor = DarkCard),
+        shape = RoundedCornerShape(12.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, CasinoGold.copy(alpha = 0.5f)),
+        modifier = modifier.fillMaxWidth().testTag("card_probability_stats")
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            // Header
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.BarChart,
+                        contentDescription = null,
+                        tint = CasinoGold,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Toplam İhtimal & Dağılım Paneli",
+                        color = TextPrimary,
+                        fontWeight = FontWeight.Black,
+                        fontSize = 13.sp
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(Color(0xFF0F172A))
+                        .border(0.8.dp, DarkCardBorder, RoundedCornerShape(4.dp))
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = "$totalCols Kolon Analizi",
+                        color = ElectricCyan,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // 1 - X - 2 Probability Distribution Bar Boxes
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Home (1)
+                OutcomeStatBox(
+                    label = "1 (Ev Sahibi)",
+                    percentage = pct1,
+                    count = count1,
+                    accentColor = ElectricGreen,
+                    modifier = Modifier.weight(1f)
+                )
+
+                // Draw (X)
+                OutcomeStatBox(
+                    label = "X (Beraberlik)",
+                    percentage = pctX,
+                    count = countX,
+                    accentColor = CasinoGold,
+                    modifier = Modifier.weight(1f)
+                )
+
+                // Away (2)
+                OutcomeStatBox(
+                    label = "2 (Deplasman)",
+                    percentage = pct2,
+                    count = count2,
+                    accentColor = ElectricCyan,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Sub-metrics Row (Confidence score, Favorite vs Surprise, Top column)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color(0xFF0A101C))
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(text = "Güven Endeksi", color = TextMuted, fontSize = 10.sp)
+                    Text(
+                        text = "%%%.1f".format(confidenceScore),
+                        color = ElectricGreen,
+                        fontWeight = FontWeight.Black,
+                        fontSize = 13.sp
+                    )
+                }
+
+                Box(modifier = Modifier.width(1.dp).height(24.dp).background(DarkCardBorder))
+
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(text = "Favori / Sürpriz", color = TextMuted, fontSize = 10.sp)
+                    Text(
+                        text = "%%%.0f / %%%.0f".format(favoriteRatio, surpriseRatio),
+                        color = CasinoGold,
+                        fontWeight = FontWeight.Black,
+                        fontSize = 13.sp
+                    )
+                }
+
+                Box(modifier = Modifier.width(1.dp).height(24.dp).background(DarkCardBorder))
+
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(text = "Öncü Kolon", color = TextMuted, fontSize = 10.sp)
+                    Text(
+                        text = "Kolon #1 (Tavsiye)",
+                        color = ElectricCyan,
+                        fontWeight = FontWeight.Black,
+                        fontSize = 13.sp
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun OutcomeStatBox(
+    label: String,
+    percentage: Double,
+    count: Int,
+    accentColor: Color,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(Color(0xFF0F172A))
+            .border(1.dp, accentColor.copy(alpha = 0.35f), RoundedCornerShape(8.dp))
+            .padding(8.dp)
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+            Text(
+                text = label,
+                color = TextSecondary,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = "%%%.1f".format(percentage),
+                color = accentColor,
+                fontWeight = FontWeight.Black,
+                fontSize = 15.sp
+            )
+            Text(
+                text = "$count tercih",
+                color = TextMuted,
+                fontSize = 9.sp
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            // Progress Bar
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(3.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(Color(0xFF1E293B))
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(fraction = (percentage / 100.0).toFloat().coerceIn(0.05f, 1f))
+                        .height(3.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(accentColor)
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Modal dialog listing saved JSON coupons in device local storage,
+ * allowing the user to inspect, load, and delete them.
+ */
+@Composable
+private fun SavedJsonCouponsDialog(
+    onDismiss: () -> Unit,
+    onLoadSavedList: () -> List<SavedJsonCouponMeta>,
+    onLoadCouponFromFile: (File) -> Unit,
+    onDeleteSavedFile: (File) -> Unit
+) {
+    var savedList by remember { mutableStateOf(onLoadSavedList()) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = DarkCard,
+        titleContentColor = TextPrimary,
+        textContentColor = TextSecondary,
+        title = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(imageVector = Icons.Default.FolderOpen, contentDescription = null, tint = CasinoGold, modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Kayıtlı JSON Kuponları",
+                        fontWeight = FontWeight.Black,
+                        fontSize = 16.sp,
+                        color = TextPrimary
+                    )
+                }
+                Text(
+                    text = "${savedList.size} Dosya",
+                    color = ElectricCyan,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp
+                )
+            }
+        },
+        text = {
+            if (savedList.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 20.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("📂", fontSize = 28.sp)
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "Henüz cihaz hafızasına kaydedilmiş bir JSON kuponu bulunmuyor.",
+                            color = TextMuted,
+                            fontSize = 12.sp,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(savedList, key = { it.id }) { meta ->
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, DarkCardBorder),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth().testTag("saved_json_item_${meta.id}")
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = meta.title,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp,
+                                        color = TextPrimary,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(Color(0xFF261905))
+                                            .border(0.8.dp, CasinoGold.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    ) {
+                                        Text(
+                                            text = "${meta.totalColumns} Kolon",
+                                            color = CasinoGold,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(4.dp))
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "${meta.formattedDate} • ${meta.file.length() / 1024} KB",
+                                        color = TextMuted,
+                                        fontSize = 10.sp
+                                    )
+
+                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        // Delete file button
+                                        Box(
+                                            modifier = Modifier
+                                                .size(28.dp)
+                                                .clip(RoundedCornerShape(6.dp))
+                                                .background(Color(0xFF450A0A))
+                                                .clickable {
+                                                    onDeleteSavedFile(meta.file)
+                                                    savedList = onLoadSavedList()
+                                                },
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Delete,
+                                                contentDescription = "Sil",
+                                                tint = Color(0xFFF87171),
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                        }
+
+                                        // Load file button
+                                        Button(
+                                            onClick = { onLoadCouponFromFile(meta.file) },
+                                            colors = ButtonDefaults.buttonColors(containerColor = CasinoGold),
+                                            shape = RoundedCornerShape(6.dp),
+                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                            modifier = Modifier.height(28.dp)
+                                        ) {
+                                            Text(
+                                                text = "Aç 📂",
+                                                color = Color.Black,
+                                                fontWeight = FontWeight.Black,
+                                                fontSize = 11.sp
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Kapat", color = CasinoGold, fontWeight = FontWeight.Bold)
+            }
+        }
+    )
 }

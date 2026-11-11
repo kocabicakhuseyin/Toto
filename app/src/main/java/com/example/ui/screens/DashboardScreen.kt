@@ -97,6 +97,11 @@ fun DashboardScreen(
             onOpenWallet = onOpenWallet
         )
 
+        // 2.5 LIVE MATCHES QUICK BANNER
+        LiveScoresDashboardBanner(
+            onOpenLiveResults = { onNavigateTab(AppNavTab.RESULTS) }
+        )
+
         // 3. GUARANTEED FORMULA SECTION HEADER
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -137,7 +142,7 @@ fun DashboardScreen(
                 title = "15 Garanti",
                 tagline = "Tam Kapsama (N-0)",
                 description = "Seçimler tutarsa %100 kesin 15 Garanti ikramiye.",
-                badge = "15 HEDEF",
+                badge = "15 GARANTİ",
                 accentColor = CasinoGold,
                 icon = Icons.Default.Casino,
                 testTag = "card_formula_15",
@@ -677,3 +682,94 @@ private fun WalletAndAutoPlayCard(
         }
     }
 }
+
+@Composable
+fun LiveScoresDashboardBanner(
+    onOpenLiveResults: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable { onOpenLiveResults() }
+            .testTag("banner_dashboard_live_scores"),
+        colors = CardDefaults.cardColors(containerColor = DarkCard),
+        shape = RoundedCornerShape(12.dp),
+        border = CardDefaults.outlinedCardBorder().copy(
+            brush = Brush.linearGradient(
+                listOf(VibrantRed.copy(alpha = 0.8f), CasinoGold.copy(alpha = 0.6f))
+            )
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF2B0F15)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(text = "🔴", fontSize = 16.sp)
+                }
+
+                Spacer(modifier = Modifier.width(10.dp))
+
+                Column {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "Canlı Maçlar & Skor Takibi",
+                            color = TextPrimary,
+                            fontWeight = FontWeight.Black,
+                            fontSize = 14.sp
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(VibrantRed.copy(alpha = 0.2f))
+                                .border(1.dp, VibrantRed, RoundedCornerShape(4.dp))
+                                .padding(horizontal = 4.dp, vertical = 1.dp)
+                        ) {
+                            Text(
+                                text = "CANLI",
+                                color = VibrantRed,
+                                fontWeight = FontWeight.Black,
+                                fontSize = 9.sp
+                            )
+                        }
+                    }
+                    Text(
+                        text = "15 Maçın anlık skorlarını ve yaşayan kupon kolonlarınızı izleyin",
+                        color = TextSecondary,
+                        fontSize = 11.sp
+                    )
+                }
+            }
+
+            Button(
+                onClick = onOpenLiveResults,
+                colors = ButtonDefaults.buttonColors(containerColor = VibrantRed),
+                shape = RoundedCornerShape(8.dp),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+            ) {
+                Text(
+                    text = "Takip Et ▶",
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 11.sp
+                )
+            }
+        }
+    }
+}
+

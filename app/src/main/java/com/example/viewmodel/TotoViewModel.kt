@@ -17,6 +17,7 @@ import com.example.model.UserProfile
 import com.example.network.model.WeeklyBulletinResponse
 import com.example.repository.SporTotoBulletinRepository
 import com.example.repository.SporTotoBulletinRepositoryImpl
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -25,6 +26,17 @@ import kotlinx.coroutines.launch
 
 import com.example.data.local.entity.PurchaseHistoryEntity
 import com.example.data.repository.WalletRepository
+import android.content.Context
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import com.example.data.local.CouponJsonStorageManager
+import com.example.data.local.SavedJsonCouponMeta
+import com.example.model.CouponSurvivalReport
+import com.example.model.FilterProfileType
+import com.example.model.MatchLiveScore
+import com.example.model.MatchStatus
 
 class TotoViewModel(
     private val bulletinRepository: SporTotoBulletinRepository = SporTotoBulletinRepositoryImpl(),
@@ -57,10 +69,43 @@ class TotoViewModel(
     private val _selectedFormula = MutableStateFlow(FormulaType.GUARANTEE_14)
     val selectedFormula: StateFlow<FormulaType> = _selectedFormula.asStateFlow()
 
+    private val _targetColumnCap = MutableStateFlow<Int?>(null)
+    val targetColumnCap: StateFlow<Int?> = _targetColumnCap.asStateFlow()
+
+    fun setTargetColumnCap(cap: Int?) {
+        _targetColumnCap.value = cap
+    }
+
+    private val _filterCriteria = MutableStateFlow(com.example.model.TotoFilterCriteria())
+    val filterCriteria: StateFlow<com.example.model.TotoFilterCriteria> = _filterCriteria.asStateFlow()
+
+    val liveScores: StateFlow<List<MatchLiveScore>> = bulletinRepository.liveScores
+
+    private val _isLivePolling = MutableStateFlow(true)
+    val isLivePolling: StateFlow<Boolean> = _isLivePolling.asStateFlow()
+
+    private val _lastLiveUpdateTime = MutableStateFlow("Canlı takip aktif")
+    val lastLiveUpdateTime: StateFlow<String> = _lastLiveUpdateTime.asStateFlow()
+
+    private val _isRefreshingLiveScores = MutableStateFlow(false)
+    val isRefreshingLiveScores: StateFlow<Boolean> = _isRefreshingLiveScores.asStateFlow()
+
     init {
         // Initial bulletin load & starter coupon
         refreshBulletin(forceRefresh = false)
         generateCoupon(FormulaType.GUARANTEE_14, "14 Garanti (N-1) Özel Başlangıç Kuponu")
+
+        // Continuous real-time match results polling loop (every 5 seconds)
+        viewModelScope.launch {
+            val timeFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
+            while (true) {
+                if (_isLivePolling.value) {
+                    bulletinRepository.pollLiveScores()
+                    _lastLiveUpdateTime.value = timeFormat.format(Date())
+                }
+                delay(5000L)
+            }
+        }
 
         // Sync with Room database if walletRepository is provided
         walletRepository?.let { repo ->
@@ -151,17 +196,77 @@ class TotoViewModel(
 
     fun applyQuickDoubles() {
         _matches.update { list ->
-            list.map { match ->
-                val h = match.probability.home.firstOrNull() ?: 50
-                val a = match.probability.away.firstOrNull() ?: 25
-                val set = if (h > a) {
-                    setOf(PredictionOutcome.HOME, PredictionOutcome.DRAW)
-                } else {
-                    setOf(PredictionOutcome.DRAW, PredictionOutcome.AWAY)
+            list.mapIndexed { idx, match ->
+                val set = when (idx % 3) {
+                    0 -> setOf(PredictionOutcome.HOME, PredictionOutcome.DRAW)
+                    1 -> setOf(PredictionOutcome.DRAW, PredictionOutcome.AWAY)
+                    else -> setOf(PredictionOutcome.HOME, PredictionOutcome.AWAY)
                 }
                 match.copy(selections = set)
             }
         }
+        generateCoupon(_selectedFormula.value, "1-15 Tam Dağıtımlı Garantili Kupon")
+    }
+
+    fun applyQuickDoubles10To15() {
+        _matches.update { list ->
+            list.mapIndexed { idx, match ->
+                if (idx in 9..14) {
+                    val set = when (idx) {
+                        9 -> setOf(PredictionOutcome.HOME, PredictionOutcome.DRAW)
+                        10 -> setOf(PredictionOutcome.DRAW, PredictionOutcome.AWAY)
+                        11 -> setOf(PredictionOutcome.HOME, PredictionOutcome.AWAY)
+                        12 -> setOf(PredictionOutcome.HOME, PredictionOutcome.DRAW)
+                        13 -> setOf(PredictionOutcome.DRAW, PredictionOutcome.AWAY)
+                        else -> setOf(PredictionOutcome.HOME, PredictionOutcome.DRAW)
+                    }
+                    match.copy(selections = set)
+                } else {
+                    if (match.selections.isEmpty()) {
+                        val h = match.probability.home.firstOrNull() ?: 50
+                        val d = match.probability.draw.firstOrNull() ?: 25
+                        val a = match.probability.away.firstOrNull() ?: 25
+                        val best = when {
+                            h >= d && h >= a -> PredictionOutcome.HOME
+                            d >= h && d >= a -> PredictionOutcome.DRAW
+                            else -> PredictionOutcome.AWAY
+                        }
+                        match.copy(selections = setOf(best))
+                    } else match
+                }
+            }
+        }
+        generateCoupon(_selectedFormula.value, "10-15 Avrupa Özel Garantili Kupon")
+    }
+
+    fun applyQuickDoubles1To9() {
+        _matches.update { list ->
+            list.mapIndexed { idx, match ->
+                if (idx in 0..8) {
+                    val h = match.probability.home.firstOrNull() ?: 50
+                    val a = match.probability.away.firstOrNull() ?: 25
+                    val set = if (h >= a) {
+                        setOf(PredictionOutcome.HOME, PredictionOutcome.DRAW)
+                    } else {
+                        setOf(PredictionOutcome.DRAW, PredictionOutcome.AWAY)
+                    }
+                    match.copy(selections = set)
+                } else {
+                    if (match.selections.isEmpty()) {
+                        val h = match.probability.home.firstOrNull() ?: 50
+                        val d = match.probability.draw.firstOrNull() ?: 25
+                        val a = match.probability.away.firstOrNull() ?: 25
+                        val best = when {
+                            h >= d && h >= a -> PredictionOutcome.HOME
+                            d >= h && d >= a -> PredictionOutcome.DRAW
+                            else -> PredictionOutcome.AWAY
+                        }
+                        match.copy(selections = setOf(best))
+                    } else match
+                }
+            }
+        }
+        generateCoupon(_selectedFormula.value, "1-9 Süper Lig Özel Garantili Kupon")
     }
 
     fun clearAllSelections() {
@@ -170,9 +275,14 @@ class TotoViewModel(
         }
     }
 
-    fun generateCoupon(formulaType: FormulaType, customTitle: String? = null): Coupon {
+    fun generateCoupon(
+        formulaType: FormulaType,
+        customTitle: String? = null,
+        cap: Int? = null
+    ): Coupon {
         val title = customTitle ?: "${formulaType.title} (#${_coupons.value.size + 1})"
-        val generatedCols = FormulaEngine.generateColumns(_matches.value, formulaType)
+        val effectiveCap = cap ?: _targetColumnCap.value
+        val generatedCols = FormulaEngine.generateColumns(_matches.value, formulaType, maxColumnsCap = effectiveCap)
         val newCoupon = Coupon(
             id = "coupon_${System.currentTimeMillis()}",
             title = title,
@@ -183,6 +293,197 @@ class TotoViewModel(
         _currentCoupon.value = newCoupon
         _userProfile.update { it.copy(totalAutoPlayedCoupons = it.totalAutoPlayedCoupons + 1) }
         return newCoupon
+    }
+
+    fun updateFilterCriteria(criteria: com.example.model.TotoFilterCriteria) {
+        _filterCriteria.value = criteria
+    }
+
+    fun resetFilterCriteria() {
+        _filterCriteria.value = com.example.model.TotoFilterCriteria()
+    }
+
+    /**
+     * Applies a 1-click filter profile (Favorite weighted, Balanced, Surprise weighted)
+     * and generates the filtered coupon.
+     */
+    fun applyFilterProfile(profile: FilterProfileType): Coupon {
+        val criteria = profile.toCriteria()
+        _filterCriteria.value = criteria
+        return applyFiltersAndEliminate(criteria, "${profile.displayName} Kuponu")
+    }
+
+    /**
+     * Applies filter criteria to candidate columns,
+     * eliminating non-matching columns and saving a new filtered coupon.
+     */
+    fun applyFiltersAndEliminate(
+        criteria: com.example.model.TotoFilterCriteria,
+        customTitle: String? = null
+    ): Coupon {
+        _filterCriteria.value = criteria
+        val effectiveCap = _targetColumnCap.value
+        val isUnlimited = effectiveCap == FormulaEngine.UNLIMITED_COLUMNS_CAP
+        val hasVariables = _matches.value.any { it.selections.size > 1 }
+
+        val sourceColumns = if (hasVariables) {
+            if (isUnlimited) {
+                FormulaEngine.generateAllCombinations(_matches.value, limit = 65536)
+            } else {
+                FormulaEngine.generateColumns(_matches.value, _selectedFormula.value, maxColumnsCap = effectiveCap)
+            }
+        } else {
+            val current = _currentCoupon.value
+            if (current != null && current.columns.size > 1) current.columns
+            else {
+                if (isUnlimited) FormulaEngine.generateAllCombinations(_matches.value, limit = 65536)
+                else FormulaEngine.generateColumns(_matches.value, _selectedFormula.value, maxColumnsCap = effectiveCap)
+            }
+        }
+
+        val filteredCols = if (criteria.isActive) {
+            com.example.engine.TotoFilterEngine.filterColumns(
+                columns = sourceColumns,
+                criteria = criteria,
+                matches = _matches.value
+            )
+        } else {
+            sourceColumns
+        }
+
+        val beforeCount = sourceColumns.size
+        val afterCount = filteredCols.size
+        val savings = if (beforeCount > 0) ((beforeCount - afterCount) * 100) / beforeCount else 0
+
+        val modeLabel = if (criteria.applicationMode == com.example.model.FilterApplicationMode.PROBABILITY_STRICT) "İhtimalli" else "Garantili"
+        val title = customTitle ?: "Garantili Filtreli Kupon ($modeLabel - %$savings Tasarruf)"
+
+        val safeCols = when {
+            filteredCols.isNotEmpty() -> {
+                if (isUnlimited) filteredCols
+                else if (effectiveCap != null && effectiveCap > 0) filteredCols.take(effectiveCap)
+                else filteredCols
+            }
+            sourceColumns.size > 1 -> {
+                if (isUnlimited) sourceColumns.take(minOf(64, sourceColumns.size))
+                else sourceColumns.take(minOf(6, sourceColumns.size))
+            }
+            else -> sourceColumns
+        }
+
+        val newCoupon = Coupon(
+            id = "filtered_${System.currentTimeMillis()}",
+            title = title,
+            formulaType = _selectedFormula.value,
+            columns = safeCols
+        )
+
+        _coupons.update { listOf(newCoupon) + it }
+        _currentCoupon.value = newCoupon
+        return newCoupon
+    }
+
+    // --- Local JSON Storage Operations ---
+
+    fun saveCurrentCouponToJson(context: Context): Result<File> {
+        val coupon = _currentCoupon.value ?: return Result.failure(IllegalStateException("Kaydedilecek aktif kupon bulunamadı."))
+        return CouponJsonStorageManager.saveCouponToFile(context, coupon)
+    }
+
+    fun listSavedJsonCoupons(context: Context): List<SavedJsonCouponMeta> {
+        return CouponJsonStorageManager.listSavedJsonCoupons(context)
+    }
+
+    fun loadCouponFromJsonFile(file: File): Result<Coupon> {
+        return CouponJsonStorageManager.loadCouponFromFile(file).onSuccess { loaded ->
+            _coupons.update { existing ->
+                if (existing.any { it.id == loaded.id }) existing
+                else listOf(loaded) + existing
+            }
+            _currentCoupon.value = loaded
+        }
+    }
+
+    fun deleteSavedJsonCoupon(file: File): Boolean {
+        return CouponJsonStorageManager.deleteCouponFile(file)
+    }
+
+    // --- Real-time Match Results & Live Polling Operations ---
+
+    fun toggleLivePolling() {
+        _isLivePolling.update { !it }
+    }
+
+    fun setLivePolling(enabled: Boolean) {
+        _isLivePolling.value = enabled
+    }
+
+    fun pollLiveScoresNow() {
+        viewModelScope.launch {
+            _isRefreshingLiveScores.value = true
+            bulletinRepository.pollLiveScores()
+            val timeFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
+            _lastLiveUpdateTime.value = timeFormat.format(Date())
+            delay(300)
+            _isRefreshingLiveScores.value = false
+        }
+    }
+
+    /**
+     * Computes real-time coupon survival and column viability based on live & finished scores.
+     * Tells the user how many columns are currently alive for 15, 14, 13, and 12.
+     */
+    fun computeCouponSurvival(
+        coupon: Coupon? = _currentCoupon.value,
+        liveScores: List<MatchLiveScore>
+    ): CouponSurvivalReport {
+        if (coupon == null || coupon.columns.isEmpty()) {
+            return CouponSurvivalReport(
+                totalColumns = 0,
+                aliveFor15 = 0,
+                aliveFor14 = 0,
+                aliveFor13 = 0,
+                aliveFor12 = 0,
+                finishedMatchesCount = 0,
+                liveMatchesCount = 0,
+                remainingMatchesCount = 15
+            )
+        }
+
+        val finishedMatches = liveScores.filter { it.status == MatchStatus.FINISHED }
+        val liveMatchesList = liveScores.filter { it.isLive }
+        val evaluatedMatches = liveScores.filter { it.status == MatchStatus.FINISHED || it.isLive }
+
+        var alive15 = 0
+        var alive14 = 0
+        var alive13 = 0
+        var alive12 = 0
+
+        coupon.columns.forEach { col ->
+            var errors = 0
+            for (match in evaluatedMatches) {
+                val pred = col.predictions.getOrNull(match.matchNumber - 1)
+                val winning = match.winningOutcome
+                if (pred != null && winning != null && pred != winning) {
+                    errors++
+                }
+            }
+            if (errors == 0) alive15++
+            if (errors <= 1) alive14++
+            if (errors <= 2) alive13++
+            if (errors <= 3) alive12++
+        }
+
+        return CouponSurvivalReport(
+            totalColumns = coupon.columns.size,
+            aliveFor15 = alive15,
+            aliveFor14 = alive14,
+            aliveFor13 = alive13,
+            aliveFor12 = alive12,
+            finishedMatchesCount = finishedMatches.size,
+            liveMatchesCount = liveMatchesList.size,
+            remainingMatchesCount = liveScores.count { it.status == MatchStatus.UPCOMING }
+        )
     }
 
     fun importTxtColumns(content: String, formulaName: String = "Yüklenen Extra1X2 Kuponu"): Coupon? {
@@ -284,7 +585,7 @@ class TotoViewModel(
             id = "post_${System.currentTimeMillis()}",
             authorName = profile.username,
             authorTeam = profile.favoriteTeam,
-            authorTitle = "Hedef 15 Üyesi",
+            authorTitle = "Spor Toto Uzmanı",
             content = content.trim(),
             dateText = "Bugün ${java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date())}",
             likesCount = 0,

@@ -23,6 +23,53 @@ data class TotoMatch(
     val isBanko: Boolean = false
 )
 
+enum class MatchStatus(val label: String, val badgeColorHex: Long) {
+    UPCOMING("Başlamadı", 0xFF64748B),
+    LIVE("CANLI", 0xFFEF4444),
+    HALF_TIME("Devre Arası", 0xFFF59E0B),
+    FINISHED("Bitti", 0xFF10B981)
+}
+
+data class MatchLiveScore(
+    val matchNumber: Int,
+    val homeTeam: String,
+    val awayTeam: String,
+    val homeScore: Int? = null,
+    val awayScore: Int? = null,
+    val status: MatchStatus = MatchStatus.UPCOMING,
+    val minuteText: String = "",
+    val matchDate: String = "",
+    val league: String = "UEFA / Süper Lig",
+    val homeWinOdd: Double = 1.85,
+    val drawOdd: Double = 3.20,
+    val awayWinOdd: Double = 3.40
+) {
+    val winningOutcome: PredictionOutcome?
+        get() = when {
+            homeScore == null || awayScore == null -> null
+            homeScore > awayScore -> PredictionOutcome.HOME
+            homeScore < awayScore -> PredictionOutcome.AWAY
+            else -> PredictionOutcome.DRAW
+        }
+
+    val isLive: Boolean
+        get() = status == MatchStatus.LIVE || status == MatchStatus.HALF_TIME
+
+    val scoreDisplay: String
+        get() = if (homeScore != null && awayScore != null) "$homeScore - $awayScore" else "- : -"
+}
+
+data class CouponSurvivalReport(
+    val totalColumns: Int,
+    val aliveFor15: Int,
+    val aliveFor14: Int,
+    val aliveFor13: Int,
+    val aliveFor12: Int,
+    val finishedMatchesCount: Int,
+    val liveMatchesCount: Int,
+    val remainingMatchesCount: Int
+)
+
 enum class FormulaType(val title: String, val description: String, val badge: String, val guaranteeTarget: Int = 14) {
     GUARANTEE_15("15 Garanti (Tam Kapsama)", "N-0: Seçimlerin hepsi tutarsa kesin 15 Garanti", "15 GARANTİ", 15),
     GUARANTEE_14("14 Garanti (N-1 İndirgeme)", "N-1: En az 14 Garanti (%15-20 ihtimalle 15)", "14 GARANTİ", 14),

@@ -52,12 +52,17 @@ import com.example.ui.theme.TextMuted
 import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
 
+import androidx.compose.material.icons.automirrored.filled.ReceiptLong
+import androidx.compose.material.icons.filled.SportsScore
+import com.example.ui.theme.VibrantRed
+
 enum class AppNavTab(val label: String, val icon: ImageVector) {
     HOME("Panel", Icons.Default.Dashboard),
-    ANALYSIS("15 Maç Analiz", Icons.Default.Analytics),
-    COUPONS("Kuponlarım", Icons.Default.ReceiptLong),
-    FORUM("Topluluk", Icons.Default.Forum),
-    PROFILE("Hesabım", Icons.Default.AccountCircle)
+    ANALYSIS("Bülten", Icons.Default.Analytics),
+    RESULTS("Canlı", Icons.Default.SportsScore),
+    COUPONS("Kuponlarım", Icons.AutoMirrored.Filled.ReceiptLong),
+    FORUM("Forum", Icons.Default.Forum),
+    PROFILE("Profil", Icons.Default.AccountCircle)
 }
 
 @Composable
@@ -65,6 +70,8 @@ fun TopHeaderBar(
     userProfile: UserProfile,
     onProfileClick: () -> Unit,
     onOpenWallet: () -> Unit = {},
+    onLiveClick: () -> Unit = {},
+    liveMatchesCount: Int = 0,
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -96,10 +103,10 @@ fun TopHeaderBar(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = "15",
+                        text = "ST",
                         color = Color.Black,
                         fontWeight = FontWeight.Black,
-                        fontSize = 17.sp
+                        fontSize = 15.sp
                     )
                 }
 
@@ -108,7 +115,7 @@ fun TopHeaderBar(
                 Column {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = "HEDEF 15",
+                            text = "SPOR TOTO",
                             color = TextPrimary,
                             fontWeight = FontWeight.Black,
                             fontSize = 16.sp,
@@ -139,8 +146,38 @@ fun TopHeaderBar(
                 }
             }
 
-            // Right: Wallet Balance Pill & Profile
+            // Right: Live Matches Pill, Wallet Balance Pill & Profile
             Row(verticalAlignment = Alignment.CenterVertically) {
+                // Live Matches Indicator Button
+                if (liveMatchesCount > 0) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(Color(0xFF2B0F15))
+                            .border(1.dp, VibrantRed.copy(alpha = 0.8f), RoundedCornerShape(20.dp))
+                            .clickable { onLiveClick() }
+                            .padding(horizontal = 7.dp, vertical = 4.dp)
+                            .testTag("btn_top_bar_live")
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(7.dp)
+                                .clip(CircleShape)
+                                .background(VibrantRed)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "$liveMatchesCount Canlı",
+                            color = VibrantRed,
+                            fontWeight = FontWeight.Black,
+                            fontSize = 11.sp
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(6.dp))
+                }
+
                 // Gold Wallet Pill (Google Play)
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -205,6 +242,7 @@ fun TopHeaderBar(
 fun ModernBottomNavBar(
     currentTab: AppNavTab,
     couponsCount: Int,
+    liveMatchesCount: Int = 0,
     onTabSelected: (AppNavTab) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -219,24 +257,38 @@ fun ModernBottomNavBar(
                 selected = isSelected,
                 onClick = { onTabSelected(tab) },
                 icon = {
-                    if (tab == AppNavTab.COUPONS && couponsCount > 0) {
-                        BadgedBox(
-                            badge = {
-                                Badge(containerColor = CasinoGold) {
-                                    Text("$couponsCount", color = Color.Black, fontWeight = FontWeight.Bold)
+                    when {
+                        tab == AppNavTab.COUPONS && couponsCount > 0 -> {
+                            BadgedBox(
+                                badge = {
+                                    Badge(containerColor = CasinoGold) {
+                                        Text("$couponsCount", color = Color.Black, fontWeight = FontWeight.Bold)
+                                    }
                                 }
+                            ) {
+                                Icon(imageVector = tab.icon, contentDescription = tab.label)
                             }
-                        ) {
+                        }
+                        tab == AppNavTab.RESULTS && liveMatchesCount > 0 -> {
+                            BadgedBox(
+                                badge = {
+                                    Badge(containerColor = VibrantRed) {
+                                        Text("$liveMatchesCount", color = Color.White, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            ) {
+                                Icon(imageVector = tab.icon, contentDescription = tab.label)
+                            }
+                        }
+                        else -> {
                             Icon(imageVector = tab.icon, contentDescription = tab.label)
                         }
-                    } else {
-                        Icon(imageVector = tab.icon, contentDescription = tab.label)
                     }
                 },
                 label = {
                     Text(
                         text = tab.label,
-                        fontSize = 11.sp,
+                        fontSize = 10.sp,
                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                     )
                 },
