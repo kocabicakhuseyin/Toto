@@ -727,7 +727,7 @@ fun LiveScoresDashboardBanner(
                 Column {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = "Canlı Maçlar & Skor Takibi",
+                            text = "Canlı Skorlar",
                             color = TextPrimary,
                             fontWeight = FontWeight.Black,
                             fontSize = 14.sp
@@ -741,7 +741,7 @@ fun LiveScoresDashboardBanner(
                                 .padding(horizontal = 4.dp, vertical = 1.dp)
                         ) {
                             Text(
-                                text = "CANLI",
+                                text = "SKOR",
                                 color = VibrantRed,
                                 fontWeight = FontWeight.Black,
                                 fontSize = 9.sp
@@ -749,7 +749,7 @@ fun LiveScoresDashboardBanner(
                         }
                     }
                     Text(
-                        text = "15 Maçın anlık skorlarını ve yaşayan kupon kolonlarınızı izleyin",
+                        text = "Gerçek maç skorlarını ve dakikalarını görüntüleyin",
                         color = TextSecondary,
                         fontSize = 11.sp
                     )
