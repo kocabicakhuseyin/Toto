@@ -47,6 +47,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -107,6 +108,12 @@ fun MatchAnalysisScreen(
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(modifier = Modifier.padding(vertical = 10.dp)) {
+                Text(
+                    text = "Hızlı işlemler  •  Diğer seçenekler için yatay kaydırın ↔",
+                    color = TextMuted,
+                    fontSize = 10.sp,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 2.dp)
+                )
                 LazyRow(
                     contentPadding = PaddingValues(horizontal = 14.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -117,7 +124,7 @@ fun MatchAnalysisScreen(
                             onClick = onRefreshBulletin,
                             label = {
                                 Text(
-                                    if (isRefreshing) "Yenileniyor..." else "🔄 Bülteni Çek",
+                                    if (isRefreshing) "Yenileniyor..." else "🔄 Bülteni Yenile",
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold
                                 )
@@ -139,7 +146,7 @@ fun MatchAnalysisScreen(
                         FilterChip(
                             selected = true,
                             onClick = onOpenFilterDialog,
-                            label = { Text("🎯 Filtreler ile Kolonları Ele", fontSize = 12.sp, fontWeight = FontWeight.Black) },
+                            label = { Text("🎯 Matris Filtreleri", fontSize = 12.sp, fontWeight = FontWeight.Black) },
                             colors = FilterChipDefaults.filterChipColors(
                                 containerColor = Color(0xFFDC2626),
                                 labelColor = Color.White
@@ -175,7 +182,7 @@ fun MatchAnalysisScreen(
                         FilterChip(
                             selected = false,
                             onClick = onApplyQuickDoubles10To15,
-                            label = { Text("🌍 10-15 Dağıt (Avrupa)", fontSize = 12.sp, fontWeight = FontWeight.Bold) },
+                            label = { Text("🌍 10–15 Dağıt", fontSize = 12.sp, fontWeight = FontWeight.Bold) },
                             colors = FilterChipDefaults.filterChipColors(
                                 containerColor = Color(0xFF1E3A8A),
                                 labelColor = Color.White
@@ -193,7 +200,7 @@ fun MatchAnalysisScreen(
                         FilterChip(
                             selected = false,
                             onClick = onApplyQuickDoubles1To9,
-                            label = { Text("⚽ 1-9 Dağıt (Süper Lig)", fontSize = 12.sp, fontWeight = FontWeight.Bold) },
+                            label = { Text("⚽ 1–9 Dağıt", fontSize = 12.sp, fontWeight = FontWeight.Bold) },
                             colors = FilterChipDefaults.filterChipColors(
                                 containerColor = DarkCard,
                                 labelColor = CasinoGold
@@ -211,7 +218,7 @@ fun MatchAnalysisScreen(
                         FilterChip(
                             selected = false,
                             onClick = onApplyQuickDoubles,
-                            label = { Text("🎯 Tümüne Dağıt (1-15)", fontSize = 12.sp, fontWeight = FontWeight.Bold) },
+                            label = { Text("🎯 1–15 Dağıt", fontSize = 12.sp, fontWeight = FontWeight.Bold) },
                             colors = FilterChipDefaults.filterChipColors(
                                 containerColor = DarkCard,
                                 labelColor = ElectricGreen
@@ -389,7 +396,7 @@ fun MatchAnalysisScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "♾️ Kolon limiti kaldırıldı: Seçtiğiniz filtrelere göre tam daraltma yapılır, her defasında 48 kolona düşürülmez.",
+                            text = "♾️ Sınırsız: Filtreleriniz uygulanır; 48 kolon sınırı kullanılmaz.",
                             color = ElectricCyan,
                             fontSize = 10.5.sp,
                             fontWeight = FontWeight.Bold
@@ -477,10 +484,12 @@ fun MatchAnalysisScreen(
                             Icon(imageVector = Icons.Default.AutoAwesome, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = "🎯 Matris Filtrele & Ele",
+                                text = "Matris Filtrele",
                                 color = Color.White,
                                 fontWeight = FontWeight.Black,
-                                fontSize = 12.sp
+                                fontSize = 11.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }
@@ -497,10 +506,12 @@ fun MatchAnalysisScreen(
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                text = "⚡ Formüller (N-1..3)",
+                                text = "⚡ Formüller",
                                 color = ElectricCyan,
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 12.sp
+                                fontSize = 11.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }
@@ -508,10 +519,9 @@ fun MatchAnalysisScreen(
 
                 Spacer(modifier = Modifier.height(4.dp))
 
-                Row(
+                Column(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalArrangement = Arrangement.spacedBy(3.dp)
                 ) {
                     Text(
                         text = "$totalSelectedMatches / 15 Maç Tercihi Belirlendi",
