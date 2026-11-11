@@ -52,6 +52,8 @@ import androidx.compose.ui.unit.sp
 import com.example.model.Coupon
 import com.example.model.CouponPoolEvaluator
 import com.example.model.MatchLiveScore
+import com.example.model.NesineReceipt
+import com.example.model.NesineReceiptParser
 import com.example.model.PoolCouponDto
 import com.example.model.PoolCouponUpload
 import com.example.model.PoolColumnRank
@@ -79,6 +81,9 @@ fun CouponPoolScreen(
     coupons: List<Coupon>,
     liveScores: List<MatchLiveScore>,
     repository: PoolRepository,
+    incomingNesineUrl: String? = null,
+    displayUsername: String = "Üye",
+    onNesineUrlHandled: () -> Unit = {},
     onBack: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
@@ -93,28 +98,74 @@ fun CouponPoolScreen(
     var loading by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf("") }
     val matchLabels = remember(matches) { CouponPoolEvaluator.matchLabels(matches) }
+    var nesineLinkInput by remember { mutableStateOf("") }
+    var nesineLinkToVerify by remember { mutableStateOf<String?>(null) }
+    var verifiedNesineReceipt by remember { mutableStateOf<NesineReceipt?>(null) }
+    var uploadedNesineId by remember { mutableStateOf("") }
+    var importRetry by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    val activeWeekKey = verifiedNesineReceipt?.weekKey ?: weekKey
+    val activeMatchLabels = verifiedNesineReceipt?.matchLabels ?: matchLabels
+
+    LaunchedEffect(incomingNesineUrl) {
+        if (incomingNesineUrl != null) {
+            nesineLinkInput = incomingNesineUrl
+            nesineLinkToVerify = incomingNesineUrl
+            verifiedNesineReceipt = null
+            uploadedNesineId = ""
+            onNesineUrlHandled()
+        }
+    }
+
+    // A Nesine share action is the user's one-time authorization. No extra
+    // publish prompt is shown after the actual public receipt is verified.
+    LaunchedEffect(verifiedNesineReceipt, signedIn, importRetry) {
+        val receipt = verifiedNesineReceipt ?: return@LaunchedEffect
+        if (!signedIn || uploadedNesineId == receipt.couponId) return@LaunchedEffect
+        loading = true
+        val upload = PoolCouponUpload(
+            weekKey = receipt.weekKey,
+            sourceCouponId = NesineReceiptParser.sourceId(receipt.couponId),
+            title = "Nesine • ${receipt.playedAt}",
+            maskedName = CouponPoolEvaluator.maskedName(displayUsername),
+            matchLabels = receipt.matchLabels,
+            columns = receipt.columns,
+            confirmedByMember = true
+        )
+        repository.share(upload)
+            .onSuccess {
+                uploadedNesineId = receipt.couponId
+                message = "Nesine kuponunuz doğrulandı ve ${receipt.columns.size} kolon havuza eklendi."
+            }
+            .onFailure { err ->
+                if (err.message.orEmpty().contains("daha önce")) {
+                    uploadedNesineId = receipt.couponId
+                    message = "Bu Nesine kuponu zaten havuzda bulunuyor."
+                } else message = err.message.orEmpty()
+            }
+        loading = false
+    }
 
     fun refresh() {
-        if (!signedIn || weekKey.isBlank()) return
+        if (!signedIn || activeWeekKey.isBlank()) return
         scope.launch {
             loading = true
-            repository.getWeek(weekKey)
+            repository.getWeek(activeWeekKey)
                 .onSuccess { entries = it; message = "" }
                 .onFailure { message = it.message.orEmpty() }
-            repository.getRanking(weekKey, matchLabels, liveScores)
+            repository.getRanking(activeWeekKey, activeMatchLabels, liveScores)
                 .onSuccess { ranked = it }
                 .onFailure { message = it.message.orEmpty() }
             loading = false
         }
     }
 
-    LaunchedEffect(weekKey, signedIn, matchLabels) {
-        if (signedIn && weekKey.isNotBlank()) {
+    LaunchedEffect(activeWeekKey, signedIn, activeMatchLabels, uploadedNesineId) {
+        if (signedIn && activeWeekKey.isNotBlank()) {
             while (true) {
-                repository.getWeek(weekKey)
+                repository.getWeek(activeWeekKey)
                     .onSuccess { entries = it; message = "" }
                     .onFailure { message = it.message.orEmpty() }
-                repository.getRanking(weekKey, matchLabels, liveScores)
+                repository.getRanking(activeWeekKey, activeMatchLabels, liveScores)
                     .onSuccess { ranked = it }
                     .onFailure { message = it.message.orEmpty() }
                 delay(60_000L)
@@ -125,9 +176,9 @@ fun CouponPoolScreen(
         }
     }
 
-    LaunchedEffect(weekKey, signedIn, matchLabels, liveScores) {
-        if (signedIn && weekKey.isNotBlank() && matchLabels.size == 15) {
-            repository.getRanking(weekKey, matchLabels, liveScores)
+    LaunchedEffect(activeWeekKey, signedIn, activeMatchLabels, liveScores) {
+        if (signedIn && activeWeekKey.isNotBlank() && activeMatchLabels.size == 15) {
+            repository.getRanking(activeWeekKey, activeMatchLabels, liveScores)
                 .onSuccess { ranked = it }
         }
     }
@@ -147,12 +198,70 @@ fun CouponPoolScreen(
                 }
                 Column(modifier = Modifier.weight(1f)) {
                     Text("Canlı Kupon Havuzu", fontSize = 19.sp, color = TextPrimary, fontWeight = FontWeight.Black)
-                    Text("${weekKey.ifBlank { "Bülten yükleniyor" }} • Üye onaylı kuponlar", fontSize = 11.sp, color = TextMuted)
+                    Text("${activeWeekKey.ifBlank { "Bülten yükleniyor" }} • Üye onaylı kuponlar", fontSize = 11.sp, color = TextMuted)
                 }
                 if (signedIn) {
                     IconButton(onClick = { refresh() }, enabled = !loading) {
                         Icon(Icons.Default.Refresh, contentDescription = "Havuzu yenile", tint = CasinoGold)
                     }
+                }
+            }
+        }
+
+        item {
+            PoolCard {
+                Text("Nesine kuponunu doğrula", color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                Text(
+                    "Nesine'deki oynanmış Spor Toto kuponunu 'Paylaş' ile Toto'ya gönderebilir ya da bağlantısını buraya yapıştırabilirsiniz. Doğrulanırsa tekrar onay sorulmadan havuza eklenir.",
+                    color = TextSecondary, fontSize = 11.sp
+                )
+                OutlinedTextField(
+                    value = nesineLinkInput,
+                    onValueChange = { nesineLinkInput = it.take(800) },
+                    label = { Text("nsn.li kupon bağlantısı") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Button(
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = nesineLinkToVerify == null && !loading,
+                    onClick = {
+                        val url = nesineLinkInput.trim()
+                        if (!NesineReceiptParser.isShareUrl(url)) {
+                            message = "Yalnızca Nesine'nin güvenli Spor Toto paylaşım bağlantısı kabul edilir."
+                        } else {
+                            verifiedNesineReceipt = null
+                            uploadedNesineId = ""
+                            nesineLinkToVerify = url
+                            message = "Nesine'nin kupon sayfası kontrol ediliyor..."
+                        }
+                    }
+                ) { Text("Bağlantıyı doğrula") }
+                verifiedNesineReceipt?.let { receipt ->
+                    Text(
+                        "Nesine doğrulandı: ${receipt.columns.size} kolon • ${receipt.status} • ${receipt.amount}",
+                        color = ElectricGreen, fontSize = 12.sp
+                    )
+                    if (!signedIn) {
+                        Text("Havuza otomatik eklemek için aşağıdan üye girişi yapın.", color = CasinoGold, fontSize = 11.sp)
+                    } else if (uploadedNesineId != receipt.couponId) {
+                        Button(
+                            onClick = { importRetry++ },
+                            enabled = !loading,
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF283346))
+                        ) { Text("Havuz kaydını yeniden dene") }
+                    }
+                }
+            }
+        }
+        if (nesineLinkToVerify != null) {
+            item {
+                NesineReceiptWebView(link = nesineLinkToVerify.orEmpty()) { result ->
+                    nesineLinkToVerify = null
+                    result.onSuccess { receipt ->
+                        verifiedNesineReceipt = receipt
+                        message = "Nesine kuponu doğrulandı: ${receipt.columns.size} kolon."
+                    }.onFailure { err -> message = err.message.orEmpty() }
                 }
             }
         }

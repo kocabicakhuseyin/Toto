@@ -1,6 +1,7 @@
 package com.example
 
 import android.os.Bundle
+import android.content.Intent
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -23,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.model.FormulaType
+import com.example.model.NesineReceiptParser
 import com.example.ui.components.AppNavTab
 import com.example.ui.components.ModernBottomNavBar
 import com.example.ui.components.TopHeaderBar
@@ -49,22 +51,46 @@ import com.example.repository.PoolRepository
 import com.example.viewmodel.BillingViewModel
 
 class MainActivity : ComponentActivity() {
+    private var incomingNesineUrl by mutableStateOf<String?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        incomingNesineUrl = extractNesineShareLink(intent)
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(android.graphics.Color.rgb(15, 23, 42)),
             navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.rgb(15, 23, 42))
         )
         setContent {
             MyApplicationTheme {
-                MainAppContent()
+                MainAppContent(
+                    incomingNesineUrl = incomingNesineUrl,
+                    onNesineUrlHandled = { incomingNesineUrl = null }
+                )
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        incomingNesineUrl = extractNesineShareLink(intent)
+    }
+
+    private fun extractNesineShareLink(intent: Intent?): String? {
+        val source = when (intent?.action) {
+            Intent.ACTION_SEND -> intent.getStringExtra(Intent.EXTRA_TEXT)
+            Intent.ACTION_VIEW -> intent.dataString
+            else -> null
+        }.orEmpty()
+        return Regex("https://[^\\s<>]+", RegexOption.IGNORE_CASE)
+            .findAll(source)
+            .map { it.value.trimEnd('.', ',', ')', ']', ';') }
+            .firstOrNull(NesineReceiptParser::isShareUrl)
     }
 }
 
 @Composable
-fun MainAppContent() {
+fun MainAppContent(incomingNesineUrl: String? = null, onNesineUrlHandled: () -> Unit = {}) {
     val context = LocalContext.current
     val walletRepository = remember {
         WalletRepository(AppDatabase.getInstance(context).walletDao())
@@ -113,6 +139,9 @@ fun MainAppContent() {
 
     var currentTab by remember { mutableStateOf(AppNavTab.HOME) }
     var showPool by remember { mutableStateOf(false) }
+    LaunchedEffect(incomingNesineUrl) {
+        if (incomingNesineUrl != null) showPool = true
+    }
     LaunchedEffect(currentTab, showPool) {
         val showLiveScores = currentTab == AppNavTab.RESULTS || showPool
         viewModel.setLivePolling(showLiveScores)
@@ -161,6 +190,9 @@ fun MainAppContent() {
                     coupons = coupons,
                     liveScores = liveScores,
                     repository = poolRepository,
+                    incomingNesineUrl = incomingNesineUrl,
+                    displayUsername = userProfile.username,
+                    onNesineUrlHandled = onNesineUrlHandled,
                     onBack = { showPool = false }
                 )
             } else when (currentTab) {
