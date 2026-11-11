@@ -33,6 +33,30 @@ data class FilterPreviewResult(
     val filteredCostTL: Double
 )
 
+
+/** Full-matrix evaluation result, including the exact pre-cap match count. */
+data class MatrixFilterResult(
+    val initialColumnCount: Int,
+    val matchingColumnCount: Int,
+    val columns: List<TotoColumn>,
+    val isTooLarge: Boolean
+) {
+    val savedColumnCount: Int get() = columns.size
+    val isLimitedByCap: Boolean get() = !isTooLarge && matchingColumnCount > columns.size
+
+    fun toPreview(): FilterPreviewResult {
+        val eliminated = (initialColumnCount - matchingColumnCount).coerceAtLeast(0)
+        return FilterPreviewResult(
+            initialColumnCount = initialColumnCount,
+            filteredColumnCount = savedColumnCount,
+            eliminatedCount = eliminated,
+            savingsPercentage = if (initialColumnCount > 0) eliminated * 100 / initialColumnCount else 0,
+            initialCostTL = initialColumnCount * 0.20,
+            filteredCostTL = savedColumnCount * 0.20
+        )
+    }
+}
+
 object TotoFilterEngine {
 
     /**
@@ -301,4 +325,103 @@ object TotoFilterEngine {
             filteredCostTL = filteredCount * 0.20
         )
     }
+
+    /**
+     * Filters the full selected 15-match matrix BEFORE applying a coupon column cap.
+     * Never substitutes formula-reduced coupons or previously saved coupons as input.
+     * If the matrix exceeds the safe exact-evaluation limit, returns an explicit
+     * unsupported result instead of silently sampling or inventing columns.
+     */
+    fun filterSelectedMatrix(
+        matches: List<TotoMatch>,
+        criteria: TotoFilterCriteria,
+        maxColumnsCap: Int? = null,
+        shouldCancel: () -> Boolean = { false }
+    ): MatrixFilterResult {
+        if (matches.isEmpty()) {
+            return MatrixFilterResult(0, 0, emptyList(), isTooLarge = false)
+        }
+
+        val options = matches.map { match ->
+            if (match.selections.isNotEmpty()) {
+                match.selections.sortedBy { it.ordinal }
+            } else {
+                val home = match.probability.home.firstOrNull() ?: 33
+                val draw = match.probability.draw.firstOrNull() ?: 33
+                val away = match.probability.away.firstOrNull() ?: 33
+                val favorite = when {
+                    home >= draw && home >= away -> PredictionOutcome.HOME
+                    draw >= home && draw >= away -> PredictionOutcome.DRAW
+                    else -> PredictionOutcome.AWAY
+                }
+                listOf(favorite)
+            }
+        }
+
+        val total = options.fold(1L) { count, choices -> count * choices.size }
+        if (total > MAX_EXACT_MATRIX_COMBINATIONS) {
+            return MatrixFilterResult(total.toInt(), 0, emptyList(), isTooLarge = true)
+        }
+
+        val requestedCap = when (maxColumnsCap) {
+            com.example.engine.FormulaEngine.UNLIMITED_COLUMNS_CAP -> MAX_STORED_MATRIX_COLUMNS
+            null -> com.example.engine.FormulaEngine.calculateSmartCap(matches)
+            else -> maxColumnsCap.coerceAtLeast(0)
+        }
+        val outputLimit = requestedCap.coerceAtMost(MAX_STORED_MATRIX_COLUMNS)
+        val selected = ArrayList<TotoColumn>(minOf(outputLimit, total.toInt()))
+        val predictionBuffer = ArrayList<PredictionOutcome>(matches.size)
+
+        // An inactive filter accepts the whole matrix: enumerate only the saved
+        // prefix, while the exact matching count is known mathematically.
+        if (!criteria.isActive) {
+            fun addPrefix(depth: Int) {
+                if (selected.size >= outputLimit) return
+                if (depth == options.size) {
+                    selected.add(TotoColumn(selected.size + 1, predictionBuffer.toList()))
+                    return
+                }
+                for (outcome in options[depth]) {
+                    predictionBuffer.add(outcome)
+                    addPrefix(depth + 1)
+                    predictionBuffer.removeAt(predictionBuffer.lastIndex)
+                    if (selected.size >= outputLimit) break
+                }
+            }
+            if (outputLimit > 0) addPrefix(0)
+            return MatrixFilterResult(total.toInt(), total.toInt(), selected, isTooLarge = false)
+        }
+
+        var matchingCount = 0
+        var visited = 0
+
+        fun evaluate(depth: Int) {
+            if (depth == options.size) {
+                visited++
+                if (visited % 1024 == 0 && shouldCancel()) {
+                    throw java.util.concurrent.CancellationException("Matrix filter preview superseded")
+                }
+                val column = TotoColumn(0, predictionBuffer.toList())
+                if (evaluateColumn(column, criteria, matches)) {
+                    matchingCount++
+                    if (selected.size < outputLimit) {
+                        selected.add(column.copy(index = selected.size + 1))
+                    }
+                }
+                return
+            }
+            for (outcome in options[depth]) {
+                predictionBuffer.add(outcome)
+                evaluate(depth + 1)
+                predictionBuffer.removeAt(predictionBuffer.lastIndex)
+            }
+        }
+
+        evaluate(0)
+        return MatrixFilterResult(total.toInt(), matchingCount, selected, isTooLarge = false)
+    }
+
+    const val MAX_EXACT_MATRIX_COMBINATIONS = 1_000_000
+    const val MAX_STORED_MATRIX_COLUMNS = 100_000
+
 }
