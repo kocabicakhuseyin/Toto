@@ -3,6 +3,8 @@ package com.example.ui.screens
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,6 +14,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -29,6 +32,7 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -37,9 +41,14 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -95,315 +104,81 @@ fun MatchAnalysisScreen(
     modifier: Modifier = Modifier
 ) {
     val totalSelectedMatches = matches.count { it.selections.isNotEmpty() }
+    var showAdvancedTools by remember { mutableStateOf(false) }
 
     Column(
         modifier = modifier
             .fillMaxSize()
             .background(DarkBackground)
     ) {
-        // Top Sticky Action Bar (Modern Filter Chips)
+        // Keep the main Bülten screen focused on matches and the matrix.
+        // Advanced controls are composed only when explicitly opened.
         Surface(
             color = DarkSurface,
             tonalElevation = 4.dp,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Column(modifier = Modifier.padding(vertical = 10.dp)) {
-                Text(
-                    text = "Hızlı işlemler  •  Diğer seçenekler için yatay kaydırın ↔",
-                    color = TextMuted,
-                    fontSize = 10.sp,
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 2.dp)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                FilterChip(
+                    selected = false,
+                    enabled = !isRefreshing,
+                    onClick = onRefreshBulletin,
+                    label = {
+                        Text(
+                            if (isRefreshing) "Yenileniyor..." else "↻ Bülteni Yenile",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    },
+                    colors = FilterChipDefaults.filterChipColors(
+                        containerColor = DarkCard,
+                        labelColor = ElectricCyan
+                    ),
+                    border = FilterChipDefaults.filterChipBorder(
+                        enabled = !isRefreshing,
+                        selected = false,
+                        borderColor = ElectricCyan
+                    ),
+                    modifier = Modifier.testTag("chip_refresh_bulletin")
                 )
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 14.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    item {
-                        FilterChip(
-                            selected = isRefreshing,
-                            onClick = onRefreshBulletin,
-                            label = {
-                                Text(
-                                    if (isRefreshing) "Yenileniyor..." else "🔄 Bülteni Yenile",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            },
-                            colors = FilterChipDefaults.filterChipColors(
-                                containerColor = DarkCard,
-                                labelColor = ElectricCyan
-                            ),
-                            border = FilterChipDefaults.filterChipBorder(
-                                enabled = true,
-                                selected = isRefreshing,
-                                borderColor = ElectricCyan
-                            ),
-                            modifier = Modifier.testTag("chip_refresh_bulletin")
-                        )
-                    }
-
-                    item {
-                        FilterChip(
-                            selected = true,
-                            onClick = onOpenFilterDialog,
-                            label = { Text("🎯 Matris Filtreleri", fontSize = 12.sp, fontWeight = FontWeight.Black) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                containerColor = Color(0xFFDC2626),
-                                labelColor = Color.White
-                            ),
-                            border = FilterChipDefaults.filterChipBorder(
-                                enabled = true,
-                                selected = true,
-                                borderColor = Color(0xFFFCA5A5)
-                            ),
-                            modifier = Modifier.testTag("chip_open_filters")
-                        )
-                    }
-
-                    item {
-                        FilterChip(
-                            selected = false,
-                            onClick = onSelectAllFavorites,
-                            label = { Text("⚡ Tüm Favoriler", fontSize = 12.sp, fontWeight = FontWeight.Bold) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                containerColor = DarkCard,
-                                labelColor = ElectricCyan
-                            ),
-                            border = FilterChipDefaults.filterChipBorder(
-                                enabled = true,
-                                selected = false,
-                                borderColor = DarkCardBorder
-                            ),
-                            modifier = Modifier.testTag("chip_all_favorites")
-                        )
-                    }
-
-                    item {
-                        FilterChip(
-                            selected = false,
-                            onClick = onApplyQuickDoubles10To15,
-                            label = { Text("🌍 10–15 Dağıt", fontSize = 12.sp, fontWeight = FontWeight.Bold) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                containerColor = Color(0xFF1E3A8A),
-                                labelColor = Color.White
-                            ),
-                            border = FilterChipDefaults.filterChipBorder(
-                                enabled = true,
-                                selected = false,
-                                borderColor = ElectricCyan
-                            ),
-                            modifier = Modifier.testTag("chip_apply_doubles_10_15")
-                        )
-                    }
-
-                    item {
-                        FilterChip(
-                            selected = false,
-                            onClick = onApplyQuickDoubles1To9,
-                            label = { Text("⚽ 1–9 Dağıt", fontSize = 12.sp, fontWeight = FontWeight.Bold) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                containerColor = DarkCard,
-                                labelColor = CasinoGold
-                            ),
-                            border = FilterChipDefaults.filterChipBorder(
-                                enabled = true,
-                                selected = false,
-                                borderColor = DarkCardBorder
-                            ),
-                            modifier = Modifier.testTag("chip_apply_doubles_1_9")
-                        )
-                    }
-
-                    item {
-                        FilterChip(
-                            selected = false,
-                            onClick = onApplyQuickDoubles,
-                            label = { Text("🎯 1–15 Dağıt", fontSize = 12.sp, fontWeight = FontWeight.Bold) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                containerColor = DarkCard,
-                                labelColor = ElectricGreen
-                            ),
-                            border = FilterChipDefaults.filterChipBorder(
-                                enabled = true,
-                                selected = false,
-                                borderColor = DarkCardBorder
-                            ),
-                            modifier = Modifier.testTag("chip_apply_doubles")
-                        )
-                    }
-
-                    item {
-                        FilterChip(
-                            selected = false,
-                            onClick = onClearAll,
-                            label = { Text("✕ Temizle", fontSize = 12.sp) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                containerColor = DarkCard,
-                                labelColor = TextMuted
-                            ),
-                            border = FilterChipDefaults.filterChipBorder(
-                                enabled = true,
-                                selected = false,
-                                borderColor = DarkCardBorder
-                            ),
-                            modifier = Modifier.testTag("chip_clear_all")
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(6.dp))
-
-                // Bar 2: 1-Click Preset Filter Profiles (Favori, Dengeli, Sürpriz)
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 14.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    item {
-                        Text(
-                            text = "⚡ Hızlı Profil:",
-                            color = CasinoGold,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Black
-                        )
-                    }
-
-                    item {
-                        FilterChip(
-                            selected = false,
-                            onClick = { onApplyFilterProfile(FilterProfileType.FAVORITE_WEIGHTED) },
-                            label = { Text("🛡️ Favori Ağırlıklı", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                containerColor = DarkCard,
-                                labelColor = ElectricCyan
-                            ),
-                            border = FilterChipDefaults.filterChipBorder(
-                                enabled = true,
-                                selected = false,
-                                borderColor = ElectricCyan.copy(alpha = 0.6f)
-                            ),
-                            modifier = Modifier.testTag("chip_preset_favorite")
-                        )
-                    }
-
-                    item {
-                        FilterChip(
-                            selected = false,
-                            onClick = { onApplyFilterProfile(FilterProfileType.BALANCED) },
-                            label = { Text("⚖️ Dengeli (Tavsiye)", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                containerColor = DarkCard,
-                                labelColor = CasinoGold
-                            ),
-                            border = FilterChipDefaults.filterChipBorder(
-                                enabled = true,
-                                selected = false,
-                                borderColor = CasinoGold.copy(alpha = 0.6f)
-                            ),
-                            modifier = Modifier.testTag("chip_preset_balanced")
-                        )
-                    }
-
-                    item {
-                        FilterChip(
-                            selected = false,
-                            onClick = { onApplyFilterProfile(FilterProfileType.SURPRISE_WEIGHTED) },
-                            label = { Text("💥 Sürpriz Oran", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                containerColor = DarkCard,
-                                labelColor = VibrantRed
-                            ),
-                            border = FilterChipDefaults.filterChipBorder(
-                                enabled = true,
-                                selected = false,
-                                borderColor = VibrantRed.copy(alpha = 0.6f)
-                            ),
-                            modifier = Modifier.testTag("chip_preset_surprise")
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(6.dp))
-
-                // Bar 3: Target Column Cap Selector (Kolon Limiti Yok, Otomatik, 12, 18, 24, 32, 48, 64, 96, 128)
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 14.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    item {
-                        Text(
-                            text = "🎯 Kolon Limiti:",
-                            color = TextSecondary,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-
-                    val options = listOf(
-                        com.example.engine.FormulaEngine.UNLIMITED_COLUMNS_CAP to "Kolon Limiti Yok",
-                        null to "Otomatik (Akıllı)",
-                        12 to "12 Kolon",
-                        18 to "18 Kolon",
-                        24 to "24 Kolon",
-                        32 to "32 Kolon",
-                        48 to "48 Kolon",
-                        64 to "64 Kolon",
-                        96 to "96 Kolon",
-                        128 to "128 Kolon"
-                    )
-
-                    items(options) { (capValue, capLabel) ->
-                        val isSelected = targetColumnCap == capValue
-                        val isUnlimitedOption = capValue == com.example.engine.FormulaEngine.UNLIMITED_COLUMNS_CAP
-                        FilterChip(
-                            selected = isSelected,
-                            onClick = { onSelectTargetColumnCap(capValue) },
-                            label = {
-                                Text(
-                                    text = if (isUnlimitedOption) "♾️ $capLabel" else capLabel,
-                                    fontSize = 10.5.sp,
-                                    fontWeight = if (isSelected) FontWeight.Black else FontWeight.Medium
-                                )
-                            },
-                            colors = FilterChipDefaults.filterChipColors(
-                                containerColor = if (isSelected) {
-                                    if (isUnlimitedOption) Color(0xFF1E1015) else Color(0xFF1E293B)
-                                } else DarkCard,
-                                labelColor = if (isSelected) {
-                                    if (isUnlimitedOption) ElectricCyan else ElectricGreen
-                                } else TextMuted,
-                                selectedContainerColor = if (isUnlimitedOption) Color(0xFF1E1015) else Color(0xFF064E3B),
-                                selectedLabelColor = if (isUnlimitedOption) ElectricCyan else ElectricGreen
-                            ),
-                            border = FilterChipDefaults.filterChipBorder(
-                                enabled = true,
-                                selected = isSelected,
-                                borderColor = if (isSelected) {
-                                    if (isUnlimitedOption) ElectricCyan else ElectricGreen
-                                } else DarkCardBorder
-                            ),
-                            modifier = Modifier.testTag("chip_column_cap_${if (isUnlimitedOption) "unlimited" else (capValue ?: "auto")}")
-                        )
-                    }
-                }
-
-                if (targetColumnCap == com.example.engine.FormulaEngine.UNLIMITED_COLUMNS_CAP) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 14.dp, vertical = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "♾️ Sınırsız: Filtreleriniz uygulanır; 48 kolon sınırı kullanılmaz.",
-                            color = ElectricCyan,
-                            fontSize = 10.5.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
+                FilterChip(
+                    selected = false,
+                    onClick = { showAdvancedTools = true },
+                    label = {
+                        Text("⚙ Diğer Araçlar", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    },
+                    colors = FilterChipDefaults.filterChipColors(
+                        containerColor = DarkCard,
+                        labelColor = TextPrimary
+                    ),
+                    border = FilterChipDefaults.filterChipBorder(
+                        enabled = true,
+                        selected = false,
+                        borderColor = DarkCardBorder
+                    ),
+                    modifier = Modifier.testTag("chip_more_bulletin_tools")
+                )
             }
+        }
+
+        if (showAdvancedTools) {
+            AdvancedBulletinToolsDialog(
+                targetColumnCap = targetColumnCap,
+                onSelectTargetColumnCap = onSelectTargetColumnCap,
+                onSelectAllFavorites = onSelectAllFavorites,
+                onApplyQuickDoubles = onApplyQuickDoubles,
+                onApplyQuickDoubles1To9 = onApplyQuickDoubles1To9,
+                onApplyQuickDoubles10To15 = onApplyQuickDoubles10To15,
+                onApplyFilterProfile = onApplyFilterProfile,
+                onClearAll = onClearAll,
+                onDismiss = { showAdvancedTools = false }
+            )
         }
 
         // 15 Matches list with sleek sports betting style & 1-0-2 Selection Matrix
@@ -537,6 +312,128 @@ fun MatchAnalysisScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun AdvancedBulletinToolsDialog(
+    targetColumnCap: Int?,
+    onSelectTargetColumnCap: (Int?) -> Unit,
+    onSelectAllFavorites: () -> Unit,
+    onApplyQuickDoubles: () -> Unit,
+    onApplyQuickDoubles1To9: () -> Unit,
+    onApplyQuickDoubles10To15: () -> Unit,
+    onApplyFilterProfile: (FilterProfileType) -> Unit,
+    onClearAll: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val columnCaps = listOf(
+        com.example.engine.FormulaEngine.UNLIMITED_COLUMNS_CAP to "Sınırsız",
+        null to "Otomatik",
+        12 to "12",
+        18 to "18",
+        24 to "24",
+        32 to "32",
+        48 to "48",
+        64 to "64",
+        96 to "96",
+        128 to "128"
+    )
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text("Diğer Bülten Araçları", color = TextPrimary, fontWeight = FontWeight.Bold)
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 430.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(5.dp)
+            ) {
+                Text("Toplu maç seçimi", color = CasinoGold, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                BulletinDialogAction("⚡ Tüm Favorileri Seç") {
+                    onSelectAllFavorites()
+                    onDismiss()
+                }
+                BulletinDialogAction("⚽ Seçimleri 1–9 Dağıt") {
+                    onApplyQuickDoubles1To9()
+                    onDismiss()
+                }
+                BulletinDialogAction("🌍 Seçimleri 10–15 Dağıt") {
+                    onApplyQuickDoubles10To15()
+                    onDismiss()
+                }
+                BulletinDialogAction("🎯 Seçimleri 1–15 Dağıt") {
+                    onApplyQuickDoubles()
+                    onDismiss()
+                }
+                BulletinDialogAction("✕ Tüm Seçimleri Temizle") {
+                    onClearAll()
+                    onDismiss()
+                }
+
+                Spacer(modifier = Modifier.height(7.dp))
+                Text("Kolon limiti", color = CasinoGold, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                Text(
+                    "Seçilen sınır yeni oluşturulacak kuponlarda kullanılır.",
+                    color = TextSecondary,
+                    fontSize = 11.sp
+                )
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    items(columnCaps) { (cap, label) ->
+                        val selected = cap == targetColumnCap
+                        FilterChip(
+                            selected = selected,
+                            onClick = { onSelectTargetColumnCap(cap) },
+                            label = { Text(label, fontSize = 11.sp) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                containerColor = DarkCard,
+                                labelColor = TextPrimary,
+                                selectedContainerColor = Color(0xFF064E3B),
+                                selectedLabelColor = ElectricGreen
+                            )
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(7.dp))
+                Text("İsteğe bağlı filtre profilleri", color = CasinoGold, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                BulletinDialogAction("🛡️ Favori Ağırlıklı") {
+                    onApplyFilterProfile(FilterProfileType.FAVORITE_WEIGHTED)
+                    onDismiss()
+                }
+                BulletinDialogAction("⚖️ Dengeli") {
+                    onApplyFilterProfile(FilterProfileType.BALANCED)
+                    onDismiss()
+                }
+                BulletinDialogAction("💥 Sürpriz Oran") {
+                    onApplyFilterProfile(FilterProfileType.SURPRISE_WEIGHTED)
+                    onDismiss()
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Kapat", color = ElectricCyan) }
+        },
+        containerColor = DarkSurface
+    )
+}
+
+@Composable
+private fun BulletinDialogAction(
+    label: String,
+    onClick: () -> Unit
+) {
+    TextButton(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = label,
+            modifier = Modifier.fillMaxWidth(),
+            textAlign = TextAlign.Start,
+            color = TextPrimary,
+            fontSize = 13.sp
+        )
     }
 }
 
