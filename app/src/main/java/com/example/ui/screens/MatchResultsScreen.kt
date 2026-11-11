@@ -19,11 +19,19 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -31,6 +39,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -55,12 +64,18 @@ import com.example.ui.theme.VibrantRed
 fun MatchResultsScreen(
     liveScores: List<MatchLiveScore>,
     providerName: String,
+    hasApiKey: Boolean = false,
+    freeRequestsRemaining: Int? = null,
+    onSaveApiKey: (String) -> Unit = {},
     lastUpdateTime: String,
     isRefreshing: Boolean,
     errorMessage: String?,
     onPollNow: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var showApiKeyEntry by remember { mutableStateOf(!hasApiKey) }
+    var apiKeyDraft by remember { mutableStateOf("") }
+
     LazyColumn(
         modifier = modifier.fillMaxSize().background(DarkBackground),
         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 16.dp),
@@ -86,19 +101,19 @@ fun MatchResultsScreen(
                             fontSize = 19.sp
                         )
                         Text(
-                            "$providerName • Ekran açıkken 60 sn yenileme",
+                            "$providerName • Ekran açıkken en sık 3 dk yenileme",
                             color = TextSecondary,
                             fontSize = 10.sp
                         )
                         Text(
-                            "Son başarılı veri: $lastUpdateTime",
+                            "Son kontrol: $lastUpdateTime",
                             color = TextMuted,
                             fontSize = 10.sp
                         )
                     }
                     IconButton(
                         onClick = onPollNow,
-                        enabled = !isRefreshing,
+                        enabled = hasApiKey && !isRefreshing,
                         modifier = Modifier.testTag("btn_refresh_live_scores")
                     ) {
                         if (isRefreshing) {
@@ -115,15 +130,67 @@ fun MatchResultsScreen(
             }
         }
 
-        if (providerName == "ScoreCards") {
-            item {
-                Text(
-                    "Live scores powered by ScoreCards (scorecards.in)",
-                    modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
-                    color = TextSecondary,
-                    textAlign = TextAlign.Center,
-                    fontSize = 11.sp
-                )
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = DarkCard),
+                border = androidx.compose.foundation.BorderStroke(1.dp, DarkCardBorder),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        "API-Football Ücretsiz Plan",
+                        color = TextPrimary,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp
+                    )
+                    Text(
+                        "100 istek/gün • Uygulama en fazla 80 istek kullanır • Maç dakikaları API verisidir.",
+                        color = TextSecondary,
+                        fontSize = 11.sp
+                    )
+                    if (hasApiKey) {
+                        Text(
+                            "Bu cihazın kalan sorgu hakkı: ${freeRequestsRemaining ?: "—"}",
+                            color = ElectricGreen,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 12.sp
+                        )
+                        TextButton(onClick = { showApiKeyEntry = !showApiKeyEntry }) {
+                            Text(if (showApiKeyEntry) "Anahtar Alanını Kapat" else "API Anahtarını Değiştir")
+                        }
+                    }
+                    if (!hasApiKey || showApiKeyEntry) {
+                        OutlinedTextField(
+                            value = apiKeyDraft,
+                            onValueChange = { apiKeyDraft = it.trim() },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("api_football_free_key"),
+                            label = { Text("API-Football Anahtarı") },
+                            placeholder = { Text("Ücretsiz plan API anahtarınızı girin") },
+                            visualTransformation = PasswordVisualTransformation(),
+                            singleLine = true
+                        )
+                        Button(
+                            onClick = {
+                                onSaveApiKey(apiKeyDraft)
+                                apiKeyDraft = ""
+                                showApiKeyEntry = false
+                            },
+                            enabled = apiKeyDraft.isNotBlank(),
+                            colors = ButtonDefaults.buttonColors(containerColor = ElectricGreen),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("btn_save_api_football_key")
+                        ) {
+                            Text("Anahtarı Kaydet ve Canlı Skorları Aç", color = Color.White)
+                        }
+                    }
+                }
             }
         }
 
@@ -134,7 +201,9 @@ fun MatchResultsScreen(
                     colors = CardDefaults.cardColors(containerColor = DarkCard)
                 ) {
                     Text(
-                        text = errorMessage ?: "Şu anda desteklenen liglerde canlı karşılaşma veya yeni bitmiş maç bulunamadı.",
+                        text = errorMessage ?: if (!hasApiKey)
+                            "Canlı sonuçları görmek için yukarıdaki ücretsiz API-Football anahtarını girin."
+                        else "Şu anda API-Football üzerinden doğrulanmış canlı karşılaşma bulunamadı.",
                         modifier = Modifier.padding(20.dp),
                         color = if (errorMessage != null) Color(0xFFFFB4A9) else TextSecondary,
                         textAlign = TextAlign.Center,
