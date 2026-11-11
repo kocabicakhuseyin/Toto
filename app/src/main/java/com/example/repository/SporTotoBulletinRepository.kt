@@ -1,24 +1,29 @@
 package com.example.repository
 
+import android.content.Context
 import com.example.BuildConfig
 import com.example.model.MatchLiveScore
 import com.example.model.MatchStatus
 import com.example.model.TotoMatch
 import com.example.network.NetworkModule
+import com.example.network.ApiFootballLiveService
 import com.example.network.ScoreCardsLiveService
 import com.example.network.SporTotoApiService
 import com.example.network.model.BulletinMatchDto
 import com.example.network.model.WeeklyBulletinResponse
 import com.example.network.model.toDomainTotoMatch
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
 
 /**
  * Repository interface for managing weekly Spor Toto bulletin, matches, dates, live odds, and real-time scores.
@@ -27,6 +32,11 @@ interface SporTotoBulletinRepository {
     val cachedBulletin: StateFlow<WeeklyBulletinResponse?>
     val liveScores: StateFlow<List<MatchLiveScore>>
     val liveScoreProvider: StateFlow<String>
+
+    /** Free API-Football settings. Implementations used by tests may omit these. */
+    fun hasApiFootballKey(): Boolean = false
+    fun configureApiFootballKey(key: String) {}
+    fun freeScoreRequestsRemaining(): Int? = null
 
     /**
      * Fetches current weekly bulletin from external API (or returns cached if available).
@@ -59,11 +69,33 @@ interface SporTotoBulletinRepository {
  */
 class SporTotoBulletinRepositoryImpl(
     private val apiService: SporTotoApiService = NetworkModule.apiService,
-    private val liveScoreService: com.example.network.ApiFootballLiveService = NetworkModule.liveScoreService,
+    private val liveScoreService: ApiFootballLiveService = NetworkModule.liveScoreService,
     private val liveScoreApiKey: String = BuildConfig.API_FOOTBALL_KEY,
+    // Retained as constructor options for compatibility with older callers.
     private val scoreCardsService: ScoreCardsLiveService = NetworkModule.scoreCardsService,
-    private val trackedLeagueIds: List<Int> = listOf(5, 39, 140, 135, 1)
+    private val trackedLeagueIds: List<Int> = listOf(5, 39, 140, 135, 1),
+    applicationContext: Context? = null
 ) : SporTotoBulletinRepository {
+
+    companion object {
+        /** Keep 20 of the Free plan's 100 daily calls in reserve. */
+        const val FREE_DAILY_REQUEST_BUDGET = 80
+        /** Free mode checks scores at most every three minutes per device. */
+        const val FREE_MIN_POLL_INTERVAL_MS = 3 * 60 * 1000L
+    }
+
+    private val preferences = applicationContext?.applicationContext
+        ?.getSharedPreferences("api_football_free", Context.MODE_PRIVATE)
+    @Volatile private var configuredApiKey: String =
+        preferences?.getString("api_key", null)?.trim().orEmpty()
+            .ifBlank { liveScoreApiKey.trim() }
+    @Volatile private var quotaDay: String = preferences?.getString("quota_day", "").orEmpty()
+    @Volatile private var usedToday: Int = preferences?.getInt("used_today", 0) ?: 0
+    @Volatile private var lastAttemptMs: Long = preferences?.getLong("last_attempt", 0L) ?: 0L
+    @Volatile private var providerRemaining: Int? =
+        preferences?.getInt("provider_remaining", -1)?.takeIf { it >= 0 }
+    private var lastSuccessfulRequestMs = 0L
+    private val pollMutex = Mutex()
 
     private val _cachedBulletin = MutableStateFlow<WeeklyBulletinResponse?>(null)
     override val cachedBulletin: StateFlow<WeeklyBulletinResponse?> = _cachedBulletin.asStateFlow()
@@ -71,109 +103,161 @@ class SporTotoBulletinRepositoryImpl(
     private val _liveScores = MutableStateFlow<List<MatchLiveScore>>(emptyList())
     override val liveScores: StateFlow<List<MatchLiveScore>> = _liveScores.asStateFlow()
 
-    private val _liveScoreProvider = MutableStateFlow("ScoreCards")
+    private val _liveScoreProvider = MutableStateFlow("API-FOOTBALL (Free)")
     override val liveScoreProvider: StateFlow<String> = _liveScoreProvider.asStateFlow()
 
+    override fun hasApiFootballKey(): Boolean = configuredApiKey.isNotBlank()
+
+    override fun configureApiFootballKey(key: String) {
+        val normalized = key.trim()
+        if (normalized != configuredApiKey) {
+            configuredApiKey = normalized
+            usedToday = 0
+            lastAttemptMs = 0L
+            lastSuccessfulRequestMs = 0L
+            providerRemaining = null
+            _liveScores.value = emptyList()
+            preferences?.edit()
+                ?.putString("api_key", normalized)
+                ?.putInt("used_today", 0)
+                ?.putLong("last_attempt", 0L)
+                ?.putInt("provider_remaining", -1)
+                ?.apply()
+        }
+    }
+
+    override fun freeScoreRequestsRemaining(): Int? {
+        if (!hasApiFootballKey()) return null
+        val today = utcDay()
+        val localRemaining = if (today == quotaDay) {
+            (FREE_DAILY_REQUEST_BUDGET - usedToday).coerceAtLeast(0)
+        } else FREE_DAILY_REQUEST_BUDGET
+        return minOf(localRemaining, providerRemaining ?: 100)
+    }
+
+    private fun utcDay(): String = SimpleDateFormat("yyyyMMdd", Locale.US).apply {
+        timeZone = TimeZone.getTimeZone("UTC")
+    }.format(Date())
+
+    private fun persistQuota() {
+        preferences?.edit()
+            ?.putString("quota_day", quotaDay)
+            ?.putInt("used_today", usedToday)
+            ?.putLong("last_attempt", lastAttemptMs)
+            ?.putInt("provider_remaining", providerRemaining ?: -1)
+            ?.apply()
+    }
+
+    private fun refreshDailyQuota() {
+        val today = utcDay()
+        if (quotaDay != today) {
+            quotaDay = today
+            usedToday = 0
+            lastAttemptMs = 0L
+            providerRemaining = null
+            persistQuota()
+        }
+    }
+
+    /**
+     * API-Football is the only live-score source. Free quota is tracked locally
+     * and provider response headers are also honored. Scores and minutes are
+     * taken verbatim from the authenticated API; no fallback or mock games.
+     */
     override suspend fun pollLiveScores(): Result<List<MatchLiveScore>> =
         withContext(Dispatchers.IO) {
-            // Keyless provider first. Its API permits Android apps if the
-            // results screen displays the required ScoreCards attribution.
-            // Only tracked leagues are requested; unavailable leagues are not
-            // silently filled with demo/fallback fixtures.
-            try {
-                val widgets = coroutineScope {
-                    trackedLeagueIds.distinct().map { leagueId ->
-                        async {
-                            try {
-                                val response = scoreCardsService.getLeague(leagueId)
-                                response.body()?.takeIf {
-                                    response.isSuccessful && it.success &&
-                                        (it.cacheAgeSeconds == null || it.cacheAgeSeconds <= 300)
-                                }
-                            } catch (cancelled: CancellationException) {
-                                throw cancelled
-                            } catch (_: Exception) {
-                                null
-                            }
-                        }
-                    }.awaitAll()
-                }.filterNotNull()
+            pollMutex.withLock {
+                fun unavailable(message: String): Result<List<MatchLiveScore>> {
+                    _liveScores.value = emptyList()
+                    return Result.failure(IllegalStateException(message))
+                }
 
-                if (widgets.isNotEmpty()) {
-                    val actualScores = widgets.flatMap { widget ->
-                        (widget.live + widget.recentlyFinished).mapNotNull { match ->
-                            match.asLiveScore(widget.league?.name.orEmpty())
+                val key = configuredApiKey
+                if (key.isBlank()) {
+                    return@withLock unavailable(
+                        "Canlı skor için ücretsiz API-Football anahtarınızı girin."
+                    )
+                }
+                refreshDailyQuota()
+                val now = System.currentTimeMillis()
+                if (lastAttemptMs > 0L && now - lastAttemptMs < FREE_MIN_POLL_INTERVAL_MS) {
+                    return@withLock if (lastSuccessfulRequestMs == lastAttemptMs) {
+                        Result.success(_liveScores.value)
+                    } else {
+                        unavailable("Ücretsiz kotayı korumak için 3 dakika bekleyip tekrar deneyin.")
+                    }
+                }
+                if (usedToday >= FREE_DAILY_REQUEST_BUDGET || providerRemaining == 0) {
+                    return@withLock unavailable(
+                        "API-Football ücretsiz günlük sorgu sınırına ulaşıldı. " +
+                            "Kota 00:00 UTC'de yenilenir."
+                    )
+                }
+
+                // Count attempts too; invalid keys and HTTP errors can consume quota.
+                lastAttemptMs = now
+                usedToday++
+                persistQuota()
+
+                try {
+                    val response = liveScoreService.getLiveFixtures(key)
+                    response.headers()["x-ratelimit-requests-remaining"]
+                        ?.toIntOrNull()?.let { providerRemaining = it.coerceAtLeast(0) }
+                    persistQuota()
+                    val body = response.body()
+                    if (!response.isSuccessful || body == null) {
+                        val problem = when (response.code()) {
+                            401, 403 -> "API-Football anahtarı geçersiz veya erişim izni yok."
+                            429 -> "API-Football ücretsiz istek kotası doldu."
+                            else -> "API-Football yanıt vermedi (HTTP ${response.code()})."
                         }
+                        return@withLock unavailable(problem)
+                    }
+
+                    val providerErrors = body.errors
+                    if ((providerErrors is Map<*, *> && providerErrors.isNotEmpty()) ||
+                        (providerErrors is List<*> && providerErrors.isNotEmpty())) {
+                        return@withLock unavailable(
+                            "API-Football isteği reddetti. Anahtarınızı ve ücretsiz plan kotanızı kontrol edin."
+                        )
+                    }
+                    val actualScores = body.response.mapNotNull { item ->
+                        val status = when (item.fixture.status.short.uppercase()) {
+                            "HT" -> MatchStatus.HALF_TIME
+                            "FT", "AET", "PEN" -> MatchStatus.FINISHED
+                            "1H", "2H", "ET", "BT", "P", "LIVE", "INT", "SUSP" -> MatchStatus.LIVE
+                            else -> MatchStatus.UPCOMING
+                        }
+                        if (status == MatchStatus.UPCOMING) return@mapNotNull null
+                        MatchLiveScore(
+                            matchNumber = item.fixture.id,
+                            homeTeam = item.teams.home.name,
+                            awayTeam = item.teams.away.name,
+                            homeScore = item.goals.home,
+                            awayScore = item.goals.away,
+                            status = status,
+                            minuteText = when {
+                                status == MatchStatus.HALF_TIME -> "İY"
+                                status == MatchStatus.FINISHED -> "MS"
+                                item.fixture.status.elapsed != null ->
+                                    "${item.fixture.status.elapsed}'"
+                                else -> "—"
+                            },
+                            matchDate = item.fixture.date.orEmpty(),
+                            league = item.league?.name.orEmpty()
+                        )
                     }.distinctBy { it.matchNumber }
                         .sortedWith(compareByDescending<MatchLiveScore> { it.isLive }
                             .thenByDescending { it.matchDate })
-
-                    _liveScoreProvider.value = "ScoreCards"
+                    _liveScoreProvider.value = "API-FOOTBALL (Free)"
                     _liveScores.value = actualScores
-                    // Empty means no verified live/recent games, not a failure.
-                    return@withContext Result.success(actualScores)
+                    lastSuccessfulRequestMs = lastAttemptMs
+                    Result.success(actualScores)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    unavailable("API-Football bağlantısı kurulamadı. İnterneti kontrol edin.")
                 }
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Exception) {
-                // If available, the authenticated provider is tried below.
-            }
-
-            if (liveScoreApiKey.isBlank()) {
-                _liveScores.value = emptyList()
-                return@withContext Result.failure(IllegalStateException(
-                    "Canlı skor kaynağına ulaşılamıyor; bağlantıyı kontrol edip yeniden deneyin."
-                ))
-            }
-
-            try {
-                val response = liveScoreService.getLiveFixtures(liveScoreApiKey)
-                val body = response.body()
-                if (!response.isSuccessful || body == null) {
-                    _liveScores.value = emptyList()
-                    return@withContext Result.failure(
-                        IllegalStateException("Canlı skor servisi yanıt vermedi (HTTP ${response.code()}).")
-                    )
-                }
-                val serviceErrors = body.errors
-                if ((serviceErrors is Map<*, *> && serviceErrors.isNotEmpty()) ||
-                    (serviceErrors is List<*> && serviceErrors.isNotEmpty())) {
-                    _liveScores.value = emptyList()
-                    return@withContext Result.failure(IllegalStateException("Skor servisi isteği reddetti; API anahtarını ve kotayı kontrol edin."))
-                }
-                // API-FOOTBALL fixture IDs are globally unique. They are NOT
-                // Sportoto coupon numbers; do not use these to calculate coupon outcomes.
-                val actualScores = body.response.map { item ->
-                    val status = when (item.fixture.status.short.uppercase()) {
-                        "HT" -> MatchStatus.HALF_TIME
-                        "FT", "AET", "PEN" -> MatchStatus.FINISHED
-                        "1H", "2H", "ET", "BT", "P", "LIVE", "INT", "SUSP" -> MatchStatus.LIVE
-                        else -> MatchStatus.UPCOMING
-                    }
-                    MatchLiveScore(
-                        matchNumber = item.fixture.id,
-                        homeTeam = item.teams.home.name,
-                        awayTeam = item.teams.away.name,
-                        homeScore = item.goals.home,
-                        awayScore = item.goals.away,
-                        status = status,
-                        minuteText = when {
-                            status == MatchStatus.HALF_TIME -> "İY"
-                            item.fixture.status.elapsed != null -> "${item.fixture.status.elapsed}'"
-                            else -> "—"
-                        },
-                        matchDate = item.fixture.date.orEmpty(),
-                        league = item.league?.name.orEmpty()
-                    )
-                }
-                _liveScoreProvider.value = "API-FOOTBALL"
-                _liveScores.value = actualScores
-                Result.success(actualScores)
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Exception) {
-                _liveScores.value = emptyList()
-                Result.failure(IllegalStateException("Canlı skor verisi alınamadı. Ağ bağlantısını kontrol edin."))
             }
         }
 
