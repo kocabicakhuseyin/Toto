@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.FilterAlt
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -97,7 +98,7 @@ fun TotoFilterDialog(
     targetColumnCap: Int?,
     sourceColumns: List<TotoColumn>? = null,
     onDismiss: () -> Unit,
-    onApplyFilters: (TotoFilterCriteria, MatrixFilterResult) -> Unit
+    onApplyFilters: (TotoFilterCriteria, MatrixFilterResult, Boolean) -> Unit
 ) {
     var criteria by remember { mutableStateOf(initialCriteria) }
     var showStatsForTotalSurprise by remember { mutableStateOf(false) }
@@ -123,6 +124,8 @@ fun TotoFilterDialog(
     val evaluatedResult = matrixResult
     val previewResult: FilterPreviewResult = evaluatedResult?.toPreview()
         ?: FilterPreviewResult(0, 0, 0, 0, 0.0, 0.0)
+    val canCreateCoupon = evaluatedResult != null &&
+        !evaluatedResult.isTooLarge && evaluatedResult.savedColumnCount > 0
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -778,6 +781,17 @@ fun TotoFilterDialog(
                             )
                         }
 
+                        if (evaluatedResult != null && !evaluatedResult.isTooLarge &&
+                            evaluatedResult.savedColumnCount == 0
+                        ) {
+                            Text(
+                                text = "Bu filtrelerle 0 kolon kaldı. Kupon oluşturmak için koşulları değiştirin veya yeni matris hazırlayın.",
+                                color = VibrantRed,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 12.sp
+                            )
+                        }
+
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -800,11 +814,11 @@ fun TotoFilterDialog(
                             Button(
                                 onClick = {
                                     if (evaluatedResult != null && !evaluatedResult.isTooLarge) {
-                                        onApplyFilters(criteria, evaluatedResult)
+                                        onApplyFilters(criteria, evaluatedResult, false)
                                         onDismiss()
                                     }
                                 },
-                                enabled = evaluatedResult != null && !evaluatedResult.isTooLarge,
+                                enabled = canCreateCoupon,
                                 colors = ButtonDefaults.buttonColors(containerColor = ElectricGreen),
                                 shape = RoundedCornerShape(8.dp),
                                 modifier = Modifier
@@ -814,7 +828,7 @@ fun TotoFilterDialog(
                             ) {
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                     Text(
-                                        text = "Filtreleri Uygula",
+                                        text = "Kupon Oluştur",
                                         color = Color.White,
                                         fontWeight = FontWeight.Black,
                                         fontSize = 12.sp,
@@ -829,6 +843,37 @@ fun TotoFilterDialog(
                                     )
                                 }
                             }
+                        }
+
+                        Button(
+                            onClick = {
+                                if (evaluatedResult != null && canCreateCoupon) {
+                                    onApplyFilters(criteria, evaluatedResult, true)
+                                    onDismiss()
+                                }
+                            },
+                            enabled = canCreateCoupon,
+                            colors = ButtonDefaults.buttonColors(containerColor = CasinoGold),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 50.dp)
+                                .testTag("btn_create_save_filtered_coupon")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Save,
+                                contentDescription = null,
+                                tint = Color.Black,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Kuponu Oluştur ve Cihaza Kaydet",
+                                color = Color.Black,
+                                fontWeight = FontWeight.Black,
+                                fontSize = 12.sp,
+                                maxLines = 1
+                            )
                         }
                     }
                 }
