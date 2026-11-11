@@ -81,6 +81,22 @@ object NetworkModule {
             .create(SporTotoApiService::class.java)
     }
 
+    // Scores use their own HTTP client: the bulletin's offline fallback interceptor
+    // must never turn a live-score failure into fabricated match data.
+    val liveScoreService: ApiFootballLiveService by lazy {
+        Retrofit.Builder()
+            .baseUrl("https://v3.football.api-sports.io/")
+            .client(
+                OkHttpClient.Builder()
+                    .connectTimeout(10, TimeUnit.SECONDS)
+                    .readTimeout(10, TimeUnit.SECONDS)
+                    .build()
+            )
+            .addConverterFactory(MoshiConverterFactory.create(moshi))
+            .build()
+            .create(ApiFootballLiveService::class.java)
+    }
+
     /**
      * Generates a complete 15-match weekly bulletin with teams, dates, and live betting odds.
      */
