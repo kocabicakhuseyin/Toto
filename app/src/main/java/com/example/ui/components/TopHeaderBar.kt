@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -38,6 +39,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.model.UserProfile
@@ -80,14 +82,13 @@ fun TopHeaderBar(
     Surface(
         color = DarkSurface,
         shadowElevation = 6.dp,
-        modifier = modifier.fillMaxWidth()
+        modifier = modifier.fillMaxWidth().statusBarsPadding()
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+                .padding(horizontal = 14.dp, vertical = 7.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             // App Brand with VIP Badge
             Row(
@@ -150,7 +151,11 @@ fun TopHeaderBar(
             }
 
             // Right: Live Matches Pill, Wallet Balance Pill & Profile
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.End
+            ) {
                 // Live Matches Indicator Button
                 if (liveMatchesCount > 0) {
                     Row(
@@ -331,8 +336,11 @@ fun ModernBottomNavBar(
                 },
                 label = {
                     Text(
-                        text = tab.label,
-                        fontSize = 10.sp,
+                        text = if (tab == AppNavTab.COUPONS) "Kupon" else tab.label,
+                        fontSize = 9.sp,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Clip,
                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                     )
                 },
