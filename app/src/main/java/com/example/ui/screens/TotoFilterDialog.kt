@@ -384,7 +384,7 @@ fun TotoFilterDialog(
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = "Filtreler birlikte uygulanır (VE). İhtimalli: tam eşleşme. Esnek: her sayı koşulunda ±1 tolerans; hiçbir koşul atlanmaz.",
+                                    text = "Aynı filtrede işaretlenen sayılar VEYA'dır: örneğin 2 ve 3 seçimi, 2 VEYA 3 demektir. Farklı filtreler VE ile birleşir. Esnek modda her seçime ±1 tolerans uygulanır.",
                                     color = TextSecondary,
                                     fontSize = 11.5.sp,
                                     fontWeight = FontWeight.Medium
@@ -1041,6 +1041,8 @@ private fun FilterNumberCard(
 
             Spacer(modifier = Modifier.height(10.dp))
 
+            // Each chip toggles membership in the same OR group; all groups
+            // are combined with AND by the filter engine.
             // Wrap on narrow phones and large font sizes: fixed rows could
             // overflow horizontally and hide the last numerical choices.
             FlowRow(
@@ -1055,6 +1057,17 @@ private fun FilterNumberCard(
                         onClick = { onToggleNumber(num) }
                     )
                 }
+            }
+
+            if (selectedNumbers.size > 1) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Seçilenler: ${selectedNumbers.sorted().joinToString(" VEYA ")}",
+                    color = ElectricGreenGlow,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    lineHeight = 15.sp
+                )
             }
 
             if (statsToggleText != null && onToggleStats != null) {

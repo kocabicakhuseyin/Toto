@@ -504,4 +504,65 @@ class TotoFilterEngineTest {
         assertTrue(successive.columns.all { it.asString in first.map { prior -> prior.asString }.toSet() })
     }
 
+    @Test
+    fun testMultipleChoicesWithinTheSameFilterMeanOr() {
+        fun homeWithDraws(drawCount: Int): TotoColumn = TotoColumn(
+            index = drawCount,
+            predictions = List(15) { index ->
+                if (index < drawCount) PredictionOutcome.DRAW else PredictionOutcome.HOME
+            }
+        )
+        val twoDraws = homeWithDraws(2)
+        val threeDraws = homeWithDraws(3)
+        val oneDraw = homeWithDraws(1)
+        val fourDraws = homeWithDraws(4)
+
+        val orCriteria = TotoFilterCriteria(
+            applicationMode = FilterApplicationMode.PROBABILITY_STRICT,
+            allowedTotalDraws = setOf(2, 3)
+        )
+        assertTrue(TotoFilterEngine.evaluateColumn(twoDraws, orCriteria, testMatches))
+        assertTrue(TotoFilterEngine.evaluateColumn(threeDraws, orCriteria, testMatches))
+        assertFalse(TotoFilterEngine.evaluateColumn(oneDraw, orCriteria, testMatches))
+        assertFalse(TotoFilterEngine.evaluateColumn(fourDraws, orCriteria, testMatches))
+
+        // The next filter forms an AND group, not an OR with the draw filter:
+        // three draws = 12 home results, two draws = 13 home results.
+        val withSecondFilter = orCriteria.copy(allowedCountOf1s = setOf(12))
+        assertFalse(TotoFilterEngine.evaluateColumn(twoDraws, withSecondFilter, testMatches))
+        assertTrue(TotoFilterEngine.evaluateColumn(threeDraws, withSecondFilter, testMatches))
+        assertFalse(TotoFilterEngine.evaluateColumn(oneDraw, withSecondFilter, testMatches))
+    }
+
+    @Test
+    fun testOrChipsAndOtherFiltersNarrowTheFullSelectionMatrix() {
+        val matches = testMatches.mapIndexed { index, match ->
+            match.copy(selections = if (index < 4)
+                setOf(PredictionOutcome.HOME, PredictionOutcome.DRAW)
+            else setOf(PredictionOutcome.HOME))
+        }
+        val orCriteria = TotoFilterCriteria(allowedTotalDraws = setOf(1, 3))
+        val first = TotoFilterEngine.filterSelectedMatrix(
+            matches, orCriteria, maxColumnsCap = com.example.engine.FormulaEngine.UNLIMITED_COLUMNS_CAP
+        )
+        // C(4,1) + C(4,3) = 4 + 4 = 8 accepted columns.
+        assertEquals(16, first.initialColumnCount)
+        assertEquals(8, first.matchingColumnCount)
+        assertEquals(setOf(1, 3), first.columns.map { column ->
+            column.predictions.count { it == PredictionOutcome.DRAW }
+        }.toSet())
+
+        val second = TotoFilterEngine.filterSelectedMatrix(
+            matches,
+            orCriteria.copy(allowedCountOf1s = setOf(14)),
+            maxColumnsCap = com.example.engine.FormulaEngine.UNLIMITED_COLUMNS_CAP,
+            sourceColumns = first.columns
+        )
+        assertEquals(8, second.initialColumnCount)
+        assertEquals(4, second.savedColumnCount)
+        assertTrue(second.columns.all {
+            it.predictions.count { result -> result == PredictionOutcome.DRAW } == 1
+        })
+    }
+
 }

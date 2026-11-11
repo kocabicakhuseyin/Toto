@@ -215,6 +215,11 @@ object TotoFilterEngine {
         return if (maximum >= 2) maximum else 0
     }
 
+    /**
+     * A chosen set is an OR group: {2, 3} accepts 2 OR 3. Each different
+     * numeric filter is AND-ed with the others by evaluateColumn.
+     * Flexible mode expands EACH selected value independently, preserving OR.
+     */
     private fun countAllowed(
         actual: Int,
         selected: Set<Int>,
