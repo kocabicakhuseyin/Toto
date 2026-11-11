@@ -18,10 +18,12 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
@@ -99,13 +101,15 @@ fun TotoFilterDialog(
 
     Dialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false
+        )
     ) {
         Surface(
             modifier = Modifier
                 .fillMaxSize()
-                // Android 15/16 edge-to-edge dialogs may extend beneath the
-                // navigation bar; keep the fixed action row inside safe bounds.
+                // Keep the full-screen dialog inside system bars on edge-to-edge devices.
                 .windowInsetsPadding(WindowInsets.safeDrawing)
                 .padding(top = 6.dp),
             color = DarkBackground,
@@ -638,56 +642,79 @@ fun TotoFilterDialog(
                     }
                 }
 
-                // 13. Bottom Live Preview & Action Bar
+                // 13. Fixed summary/action footer, with independent navigation-bar protection.
                 Surface(
                     color = DarkSurface,
                     shadowElevation = 8.dp,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .windowInsetsPadding(WindowInsets.navigationBars)
                 ) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 14.dp, vertical = 10.dp)
+                            .padding(horizontal = 14.dp, vertical = 12.dp)
+                            .padding(bottom = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        // Reduction Status Bar
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Column {
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(3.dp)
+                            ) {
                                 Text(
-                                    text = "Başlangıç: ${previewResult.initialColumnCount} Kolon (${String.format("%.2f", previewResult.initialCostTL)} ₺)",
-                                    color = TextMuted,
-                                    fontSize = 11.sp
+                                    text = "Başlangıç: ${previewResult.initialColumnCount} kolon • ${String.format("%.2f", previewResult.initialCostTL)} ₺",
+                                    color = TextSecondary,
+                                    fontSize = 12.sp,
+                                    lineHeight = 16.sp
                                 )
                                 Text(
-                                    text = "Kalan: ${previewResult.filteredColumnCount} Kolon (${String.format("%.2f", previewResult.filteredCostTL)} ₺)",
-                                    color = ElectricGreen,
+                                    text = "FİLTRE SONRASI KALAN",
+                                    color = TextSecondary,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 10.5.sp
+                                )
+                                Text(
+                                    text = "${previewResult.filteredColumnCount} KOLON",
+                                    color = ElectricGreenGlow,
                                     fontWeight = FontWeight.Black,
-                                    fontSize = 14.sp
+                                    fontSize = 21.sp,
+                                    lineHeight = 26.sp,
+                                    modifier = Modifier.testTag("filter_preview_count")
+                                )
+                                Text(
+                                    text = "Tahmini maliyet: ${String.format("%.2f", previewResult.filteredCostTL)} ₺",
+                                    color = TextPrimary,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 12.sp,
+                                    lineHeight = 17.sp,
+                                    modifier = Modifier.testTag("filter_preview_cost")
                                 )
                             }
 
                             if (previewResult.savingsPercentage > 0) {
+                                Spacer(modifier = Modifier.width(8.dp))
                                 Box(
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(6.dp))
                                         .background(Color(0xFF064E3B))
                                         .border(1.dp, ElectricGreen, RoundedCornerShape(6.dp))
-                                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                                        .padding(horizontal = 8.dp, vertical = 6.dp)
                                 ) {
                                     Text(
-                                        text = "%${previewResult.savingsPercentage} Tasarruf!",
+                                        text = "%${previewResult.savingsPercentage} Tasarruf",
                                         color = ElectricGreenGlow,
-                                        fontWeight = FontWeight.Black,
-                                        fontSize = 12.sp
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 11.sp,
+                                        maxLines = 2
                                     )
                                 }
                             }
                         }
-
-                        Spacer(modifier = Modifier.height(10.dp))
 
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -695,12 +722,12 @@ fun TotoFilterDialog(
                         ) {
                             OutlinedButton(
                                 onClick = { criteria = TotoFilterCriteria() },
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = TextMuted),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = TextSecondary),
                                 border = BorderStroke(1.dp, Color(0xFF334155)),
                                 shape = RoundedCornerShape(8.dp),
                                 modifier = Modifier
                                     .weight(0.35f)
-                                    .height(46.dp)
+                                    .heightIn(min = 52.dp)
                                     .testTag("btn_reset_filters")
                             ) {
                                 Icon(imageVector = Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -717,7 +744,7 @@ fun TotoFilterDialog(
                                 shape = RoundedCornerShape(8.dp),
                                 modifier = Modifier
                                     .weight(0.65f)
-                                    .height(46.dp)
+                                    .heightIn(min = 52.dp)
                                     .testTag("btn_apply_filter_elimination")
                             ) {
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -732,7 +759,7 @@ fun TotoFilterDialog(
                                         text = "${previewResult.filteredColumnCount} kolon",
                                         color = Color.White,
                                         fontWeight = FontWeight.SemiBold,
-                                        fontSize = 10.sp,
+                                        fontSize = 11.sp,
                                         maxLines = 1
                                     )
                                 }
