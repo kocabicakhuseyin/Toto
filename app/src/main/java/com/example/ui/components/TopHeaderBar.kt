@@ -134,14 +134,14 @@ fun TopHeaderBar(
                                 text = "VIP",
                                 color = CasinoGold,
                                 fontWeight = FontWeight.Black,
-                                fontSize = 9.sp
+                                fontSize = 10.sp
                             )
                         }
                     }
                     Text(
                         text = "0.20 ₺ / Kolon Otomasyon",
                         color = CasinoGoldLight,
-                        fontSize = 10.sp,
+                        fontSize = 11.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
@@ -205,7 +205,7 @@ fun TopHeaderBar(
                         text = "%.2f ₺".format(userProfile.walletBalanceTL),
                         color = CasinoGoldLight,
                         fontWeight = FontWeight.Black,
-                        fontSize = 12.sp
+                        fontSize = 13.sp
                     )
                     Spacer(modifier = Modifier.width(5.dp))
                     Box(
@@ -293,19 +293,19 @@ fun ModernBottomNavBar(
                 label = {
                     Text(
                         text = if (tab == AppNavTab.COUPONS) "Kupon" else tab.label,
-                        fontSize = 9.sp,
+                        fontSize = 10.5.sp,
                         maxLines = 1,
                         softWrap = false,
-                        overflow = TextOverflow.Clip,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                        overflow = TextOverflow.Ellipsis,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold
                     )
                 },
                 colors = NavigationBarItemDefaults.colors(
                     selectedIconColor = Color.Black,
                     selectedTextColor = CasinoGold,
                     indicatorColor = CasinoGold,
-                    unselectedIconColor = TextMuted,
-                    unselectedTextColor = TextMuted
+                    unselectedIconColor = TextSecondary,
+                    unselectedTextColor = TextSecondary
                 ),
                 modifier = Modifier.testTag("nav_${tab.name.lowercase()}")
             )
