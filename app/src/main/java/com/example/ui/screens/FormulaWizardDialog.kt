@@ -11,6 +11,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -128,37 +134,33 @@ fun FormulaWizardDialog(
     // 2. Pre-calculate live projections for each formula tier
     val projections: Map<FormulaType, FormulaProjection> = remember(rawCombinations, doubleCount, tripleCount, matches) {
         val fullCombs = rawCombinations.coerceAtLeast(1)
-        val fullCost = fullCombs * GuaranteeFormulaEngine.COLUMN_FEE_TL
-
-        // 14 Garanti (N-1) using algorithmic covering
+        // Keep the dialog fast: do not run the expensive covering algorithm during composition.
+        // The precise column count is determined only when the user generates a coupon.
         val smartCap = com.example.engine.FormulaEngine.calculateSmartCap(matches)
-        val n1Result = if (matches.isNotEmpty()) {
-            GuaranteeFormulaEngine.generateNMinus1Columns(matches, maxColumnsCap = smartCap)
-        } else null
-
-        val n1Cols = n1Result?.reducedColumns?.size ?: (fullCombs / (1 + doubleCount + 2 * tripleCount).coerceAtLeast(1)).coerceIn(1, smartCap)
+        val n1Cols = if (fullCombs <= 2) fullCombs
+            else (fullCombs / (1 + doubleCount + 2 * tripleCount).coerceAtLeast(1)).coerceIn(1, smartCap)
         val n1Savings = if (fullCombs > 0) (((fullCombs - n1Cols).toDouble() / fullCombs) * 100).toInt().coerceAtLeast(0) else 0
-        val n1Chance15 = if (fullCombs > 0) ((n1Cols.toDouble() / fullCombs) * 100.0).coerceIn(1.0, 100.0) else 100.0
+        val n1Chance15 = (n1Cols.toDouble() / fullCombs * 100.0).coerceIn(0.0, 100.0)
 
         // 13 Garanti (N-2) projection
         val n2Cols = (n1Cols / 2).coerceIn(1, 24)
         val n2Savings = if (fullCombs > 0) (((fullCombs - n2Cols).toDouble() / fullCombs) * 100).toInt().coerceAtLeast(0) else 0
-        val n2Chance15 = if (fullCombs > 0) ((n2Cols.toDouble() / fullCombs) * 100.0).coerceIn(0.5, 50.0) else 50.0
+        val n2Chance15 = (n2Cols.toDouble() / fullCombs * 100.0).coerceIn(0.0, 100.0)
 
         // 12 Garanti (N-3) projection
         val n3Cols = (n2Cols / 2).coerceIn(1, 12)
         val n3Savings = if (fullCombs > 0) (((fullCombs - n3Cols).toDouble() / fullCombs) * 100).toInt().coerceAtLeast(0) else 0
-        val n3Chance15 = if (fullCombs > 0) ((n3Cols.toDouble() / fullCombs) * 100.0).coerceIn(0.1, 25.0) else 25.0
+        val n3Chance15 = (n3Cols.toDouble() / fullCombs * 100.0).coerceIn(0.0, 100.0)
 
         mapOf(
             FormulaType.GUARANTEE_15 to FormulaProjection(
                 formulaType = FormulaType.GUARANTEE_15,
-                projectedColumns = fullCombs.coerceAtMost(256),
-                projectedCostTL = fullCombs.coerceAtMost(256) * GuaranteeFormulaEngine.COLUMN_FEE_TL,
-                savingsPercentage = 0,
+                projectedColumns = fullCombs.coerceAtMost(smartCap),
+                projectedCostTL = fullCombs.coerceAtMost(smartCap) * GuaranteeFormulaEngine.COLUMN_FEE_TL,
+                savingsPercentage = (((fullCombs - fullCombs.coerceAtMost(smartCap)).toDouble() / fullCombs) * 100).toInt(),
                 guaranteeTier = 15,
-                guaranteeCoveragePercentage = 100.0,
-                chanceOf15Percentage = 100.0
+                guaranteeCoveragePercentage = 0.0,
+                chanceOf15Percentage = fullCombs.coerceAtMost(smartCap).toDouble() / fullCombs * 100.0
             ),
             FormulaType.GUARANTEE_14 to FormulaProjection(
                 formulaType = FormulaType.GUARANTEE_14,
@@ -166,7 +168,7 @@ fun FormulaWizardDialog(
                 projectedCostTL = n1Cols * GuaranteeFormulaEngine.COLUMN_FEE_TL,
                 savingsPercentage = n1Savings,
                 guaranteeTier = 14,
-                guaranteeCoveragePercentage = 100.0,
+                guaranteeCoveragePercentage = 0.0,
                 chanceOf15Percentage = n1Chance15
             ),
             FormulaType.GUARANTEE_13 to FormulaProjection(
@@ -175,7 +177,7 @@ fun FormulaWizardDialog(
                 projectedCostTL = n2Cols * GuaranteeFormulaEngine.COLUMN_FEE_TL,
                 savingsPercentage = n2Savings,
                 guaranteeTier = 13,
-                guaranteeCoveragePercentage = 100.0,
+                guaranteeCoveragePercentage = 0.0,
                 chanceOf15Percentage = n2Chance15
             ),
             FormulaType.GUARANTEE_12 to FormulaProjection(
@@ -184,7 +186,7 @@ fun FormulaWizardDialog(
                 projectedCostTL = n3Cols * GuaranteeFormulaEngine.COLUMN_FEE_TL,
                 savingsPercentage = n3Savings,
                 guaranteeTier = 12,
-                guaranteeCoveragePercentage = 100.0,
+                guaranteeCoveragePercentage = 0.0,
                 chanceOf15Percentage = n3Chance15
             )
         )
@@ -194,21 +196,24 @@ fun FormulaWizardDialog(
 
     Dialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
     ) {
         Surface(
             modifier = Modifier
+                .windowInsetsPadding(WindowInsets.safeDrawing)
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 20.dp),
+                .fillMaxHeight(0.92f)
+                .padding(horizontal = 12.dp, vertical = 8.dp),
             color = Color(0xFF0B1322),
             shape = RoundedCornerShape(16.dp),
             border = BorderStroke(1.2.dp, CasinoGold.copy(alpha = 0.5f))
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
-            ) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState())
+                ) {
                 // Top Header Bar (Matching Pro Sportsbook dark theme)
                 Box(
                     modifier = Modifier
@@ -226,7 +231,10 @@ fun FormulaWizardDialog(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
                             Box(
                                 modifier = Modifier
                                     .size(28.dp)
@@ -238,19 +246,23 @@ fun FormulaWizardDialog(
                                 Text("🎯", fontSize = 15.sp)
                             }
                             Spacer(modifier = Modifier.width(8.dp))
-                            Column {
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = "SPOR TOTO GARANTİLİ FORMÜL",
                                     color = Color.White,
                                     fontWeight = FontWeight.Black,
                                     fontSize = 13.sp,
-                                    letterSpacing = 0.5.sp
+                                    letterSpacing = 0.5.sp,
+                                    lineHeight = 18.sp,
+                                    maxLines = 2
                                 )
                                 Text(
                                     text = "Garantili İndirgeme ve Başarı İstatistik Paneli",
                                     color = TextSecondary,
                                     fontSize = 10.5.sp,
-                                    fontWeight = FontWeight.Medium
+                                    fontWeight = FontWeight.Medium,
+                                    lineHeight = 14.sp,
+                                    maxLines = 2
                                 )
                             }
                         }
@@ -323,21 +335,18 @@ fun FormulaWizardDialog(
 
                             Spacer(modifier = Modifier.height(8.dp))
 
-                            // Raw Combinations vs Cost
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
+                            // Allow the combination count and cost to use the full card width.
+                            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                 Text(
-                                    text = "İndirgemesiz Tam Kombinasyon:",
-                                    color = TextMuted,
+                                    text = "İndirgemesiz tam kombinasyon",
+                                    color = TextSecondary,
                                     fontSize = 11.sp
                                 )
                                 Text(
-                                    text = "$rawCombinations Kolon (${String.format("%.2f", rawCombinations * GuaranteeFormulaEngine.COLUMN_FEE_TL)} ₺)",
+                                    text = "$rawCombinations kolon • ${String.format("%.2f", rawCombinations * GuaranteeFormulaEngine.COLUMN_FEE_TL)} ₺",
                                     color = CasinoGoldLight,
                                     fontWeight = FontWeight.Bold,
-                                    fontSize = 11.sp
+                                    fontSize = 13.sp
                                 )
                             }
                         }
@@ -353,41 +362,33 @@ fun FormulaWizardDialog(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(modifier = Modifier.padding(12.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
                                     Icon(
                                         imageVector = Icons.Default.Insights,
                                         contentDescription = null,
                                         tint = ElectricCyan,
-                                        modifier = Modifier.size(18.dp)
+                                        modifier = Modifier.size(20.dp)
                                     )
-                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
                                     Text(
-                                        text = "${selectedFormula.title} Başarı Analizi",
+                                        text = "${selectedFormula.title} • Önizleme",
                                         color = Color.White,
                                         fontWeight = FontWeight.Black,
-                                        fontSize = 13.5.sp
+                                        fontSize = 14.sp,
+                                        lineHeight = 19.sp,
+                                        modifier = Modifier.weight(1f)
                                     )
                                 }
-
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(Color(0xFF064E3B))
-                                        .border(1.dp, ElectricGreen, RoundedCornerShape(6.dp))
-                                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                                ) {
-                                    Text(
-                                        text = "%${currentProjection.savingsPercentage} Tasarruf",
-                                        color = ElectricGreenGlow,
-                                        fontWeight = FontWeight.Black,
-                                        fontSize = 10.5.sp
-                                    )
-                                }
+                                Text(
+                                    text = "Yaklaşık %${currentProjection.savingsPercentage} kolon tasarrufu",
+                                    color = ElectricGreenGlow,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp
+                                )
                             }
 
                             Spacer(modifier = Modifier.height(10.dp))
@@ -402,28 +403,36 @@ fun FormulaWizardDialog(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Column {
-                                    Text(text = "Üretilecek Kolon:", color = TextMuted, fontSize = 10.5.sp)
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(text = "Tahmini kolon", color = TextSecondary, fontSize = 10.5.sp)
                                     Text(
-                                        text = "${currentProjection.projectedColumns} Kolon",
+                                        text = "${currentProjection.projectedColumns} kolon",
                                         color = Color.White,
                                         fontWeight = FontWeight.Black,
-                                        fontSize = 15.sp
+                                        fontSize = 14.sp,
+                                        lineHeight = 18.sp
                                     )
                                 }
 
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text(text = "Birim Kolon:", color = TextMuted, fontSize = 10.5.sp)
+                                Column(
+                                    modifier = Modifier.weight(0.8f),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Text(text = "Birim fiyat", color = TextSecondary, fontSize = 10.5.sp)
                                     Text(text = "0.20 ₺", color = CasinoGold, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                                 }
 
-                                Column(horizontalAlignment = Alignment.End) {
-                                    Text(text = "Kupon Tutarı:", color = TextMuted, fontSize = 10.5.sp)
+                                Column(
+                                    modifier = Modifier.weight(1f),
+                                    horizontalAlignment = Alignment.End
+                                ) {
+                                    Text(text = "Tahmini tutar", color = TextSecondary, fontSize = 10.5.sp)
                                     Text(
                                         text = "${String.format("%.2f", currentProjection.projectedCostTL)} ₺",
                                         color = ElectricGreen,
                                         fontWeight = FontWeight.Black,
-                                        fontSize = 15.sp
+                                        fontSize = 14.sp,
+                                        lineHeight = 18.sp
                                     )
                                 }
                             }
@@ -431,7 +440,7 @@ fun FormulaWizardDialog(
                             Spacer(modifier = Modifier.height(12.dp))
 
                             Text(
-                                text = "İkramiye Başarı Oranları (Seçimler Tuttuğunda):",
+                                text = "Kapsama Özeti (Tahmini)",
                                 color = TextSecondary,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold
@@ -439,32 +448,21 @@ fun FormulaWizardDialog(
 
                             Spacer(modifier = Modifier.height(6.dp))
 
-                            // 15 Başarı İhtimali Çubuğu
+                            // A preview is not a verified guarantee over the full matrix.
                             SuccessChanceBar(
-                                label = "15 Bilme Şansı (Büyük İkramiye)",
+                                label = "15 tam eşleşen kolon payı",
                                 percentage = currentProjection.chanceOf15Percentage,
                                 color = CasinoGold,
-                                badgeText = if (currentProjection.guaranteeTier == 15) "TAM KAPSAM" else "İHTİMALLİ"
+                                badgeText = "TAHMİNİ"
                             )
 
-                            Spacer(modifier = Modifier.height(6.dp))
+                            Spacer(modifier = Modifier.height(9.dp))
 
-                            // 14 Garanti Çubuğu
-                            SuccessChanceBar(
-                                label = "14 Başarı Oranı (N-1 Kapsamı)",
-                                percentage = if (currentProjection.guaranteeTier <= 14) 100.0 else 45.0,
-                                color = ElectricCyan,
-                                badgeText = if (currentProjection.guaranteeTier <= 14) "%100 KESİN GARANTİ" else "İHTİMALLİ"
-                            )
-
-                            Spacer(modifier = Modifier.height(6.dp))
-
-                            // 13 ve 12 Garanti Çubuğu
-                            SuccessChanceBar(
-                                label = "13 & 12 Alt Kademe Garantisi",
-                                percentage = 100.0,
-                                color = ElectricGreen,
-                                badgeText = "%100 KESİN"
+                            Text(
+                                text = "Hedef: ${currentProjection.guaranteeTier} doğru. Önizleme tahminidir; kolon sınırı nedeniyle tüm kombinasyonların kapsandığı doğrulanmış değildir.",
+                                color = TextSecondary,
+                                fontSize = 11.5.sp,
+                                lineHeight = 16.sp
                             )
                         }
                     }
@@ -492,12 +490,19 @@ fun FormulaWizardDialog(
                         val isSelected = selectedFormula == formula
                         val proj = projections[formula] ?: return@forEach
 
-                        val (tierColor, badgeText) = when (formula) {
-                            FormulaType.GUARANTEE_15 -> Pair(CasinoGold, "Tam Kapsama")
-                            FormulaType.GUARANTEE_14 -> Pair(ElectricCyan, "%${proj.savingsPercentage} Tasarruf")
-                            FormulaType.GUARANTEE_13 -> Pair(ElectricGreen, "%${proj.savingsPercentage} Tasarruf")
-                            FormulaType.GUARANTEE_12 -> Pair(Color(0xFFA855F7), "%${proj.savingsPercentage} Tasarruf")
-                            else -> Pair(ElectricCyan, "")
+                        val tierColor = when (formula) {
+                            FormulaType.GUARANTEE_15 -> CasinoGold
+                            FormulaType.GUARANTEE_14 -> ElectricCyan
+                            FormulaType.GUARANTEE_13 -> ElectricGreen
+                            FormulaType.GUARANTEE_12 -> Color(0xFFA855F7)
+                            else -> ElectricCyan
+                        }
+                        val explanation = when (formula) {
+                            FormulaType.GUARANTEE_15 -> "Tam kapsamayı hedefler; kolon limiti uygulanabilir"
+                            FormulaType.GUARANTEE_14 -> "Bir hata toleransını hedefleyen indirgeme"
+                            FormulaType.GUARANTEE_13 -> "İki hata toleransını hedefleyen indirgeme"
+                            FormulaType.GUARANTEE_12 -> "Üç hata toleransını hedefleyen indirgeme"
+                            else -> formula.description
                         }
 
                         Box(
@@ -529,82 +534,88 @@ fun FormulaWizardDialog(
 
                                 Spacer(modifier = Modifier.width(8.dp))
 
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        Text(
-                                            text = formula.title,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 13.5.sp,
-                                            color = if (isSelected) Color.White else TextPrimary
-                                        )
-
-                                        Box(
-                                            modifier = Modifier
-                                                .clip(RoundedCornerShape(6.dp))
-                                                .background(tierColor.copy(alpha = 0.2f))
-                                                .border(1.dp, tierColor.copy(alpha = 0.6f), RoundedCornerShape(6.dp))
-                                                .padding(horizontal = 6.dp, vertical = 2.dp)
-                                        ) {
-                                            Text(
-                                                text = "${proj.projectedColumns} Kolon (${String.format("%.2f", proj.projectedCostTL)} ₺)",
-                                                color = tierColor,
-                                                fontSize = 10.sp,
-                                                fontWeight = FontWeight.Black
-                                            )
-                                        }
-                                    }
-
-                                    Spacer(modifier = Modifier.height(2.dp))
-
+                                Column(
+                                    modifier = Modifier.weight(1f),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
                                     Text(
-                                        text = formula.description,
+                                        text = formula.title,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp,
+                                        color = if (isSelected) Color.White else TextPrimary,
+                                        lineHeight = 18.sp
+                                    )
+                                    Text(
+                                        text = explanation,
                                         fontSize = 11.sp,
                                         color = TextSecondary,
-                                        lineHeight = 14.sp
+                                        lineHeight = 15.sp
+                                    )
+                                    Text(
+                                        text = "Tahmini: ${proj.projectedColumns} kolon • ${String.format("%.2f", proj.projectedCostTL)} ₺",
+                                        color = tierColor,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        lineHeight = 16.sp
                                     )
                                 }
                             }
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(14.dp))
+                }
+                }
 
-                    // 4. ACTION BUTTONS
-                    Button(
-                        onClick = {
-                            onConfirmFormula(selectedFormula)
-                            onDismiss()
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = ElectricGreen),
-                        shape = RoundedCornerShape(10.dp),
+                // Always-visible confirmation bar; options above remain scrollable.
+                Surface(
+                    color = Color(0xFF111B2D),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(48.dp)
-                            .testTag("btn_confirm_wizard_formula")
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null, tint = Color.White)
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "Bu Formülle Kupon Üret (${currentProjection.projectedColumns} Kolon - ${String.format("%.2f", currentProjection.projectedCostTL)} ₺)",
-                                color = Color.White,
-                                fontWeight = FontWeight.Black,
-                                fontSize = 13.sp
-                            )
+                        TextButton(
+                            onClick = onDismiss,
+                            modifier = Modifier
+                                .weight(0.28f)
+                                .heightIn(min = 56.dp)
+                        ) {
+                            Text("Vazgeç", color = TextSecondary, fontSize = 12.sp)
                         }
-                    }
 
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    TextButton(
-                        onClick = onDismiss,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Vazgeç", color = TextMuted, fontSize = 12.5.sp)
+                        Button(
+                            onClick = {
+                                onConfirmFormula(selectedFormula)
+                                onDismiss()
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = ElectricGreen),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier
+                                .weight(0.72f)
+                                .heightIn(min = 56.dp)
+                                .testTag("btn_confirm_wizard_formula")
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    text = "Bu Formülle Kupon Üret",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Black,
+                                    fontSize = 13.sp,
+                                    maxLines = 1
+                                )
+                                Text(
+                                    text = "Tahmini: ${currentProjection.projectedColumns} kolon • ${String.format("%.2f", currentProjection.projectedCostTL)} ₺",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 10.5.sp,
+                                    maxLines = 1
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -641,46 +652,45 @@ private fun SuccessChanceBar(
     color: Color,
     badgeText: String
 ) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(text = label, color = TextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Medium)
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = "${String.format("%.1f", percentage)}%",
-                    color = color,
-                    fontWeight = FontWeight.Black,
-                    fontSize = 11.5.sp
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(color.copy(alpha = 0.2f))
-                        .padding(horizontal = 4.dp, vertical = 1.dp)
-                ) {
-                    Text(text = badgeText, color = color, fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                }
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(5.dp)
+    ) {
+        Text(
+            text = label,
+            color = TextPrimary,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold
+        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "${String.format("%.1f", percentage)}%",
+                color = color,
+                fontWeight = FontWeight.Black,
+                fontSize = 14.sp
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(color.copy(alpha = 0.18f))
+                    .padding(horizontal = 7.dp, vertical = 3.dp)
+            ) {
+                Text(text = badgeText, color = color, fontSize = 10.sp, fontWeight = FontWeight.Bold)
             }
         }
-
-        Spacer(modifier = Modifier.height(3.dp))
-
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(4.dp)
-                .clip(RoundedCornerShape(2.dp))
+                .height(5.dp)
+                .clip(RoundedCornerShape(3.dp))
                 .background(Color(0xFF1E293B))
         ) {
             Box(
                 modifier = Modifier
-                    .fillMaxWidth(fraction = (percentage / 100.0).toFloat().coerceIn(0.02f, 1f))
-                    .height(4.dp)
-                    .clip(RoundedCornerShape(2.dp))
+                    .fillMaxWidth(fraction = (percentage / 100.0).toFloat().coerceIn(0.0f, 1f))
+                    .height(5.dp)
+                    .clip(RoundedCornerShape(3.dp))
                     .background(color)
             )
         }
