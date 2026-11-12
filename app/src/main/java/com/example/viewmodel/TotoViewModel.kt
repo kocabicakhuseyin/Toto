@@ -66,7 +66,7 @@ class TotoViewModel(
     }
 
     private val _matches = MutableStateFlow<List<TotoMatch>>(
-        // Real Android sessions wait for the verified official program.
+        // Real Android sessions wait for a verified 15-match bulletin.
         // No stale example fixture may appear as the current bulletin.
         if (applicationContext == null) createInitialMatches().map(::withSavedFavorite)
         else emptyList()
@@ -150,8 +150,7 @@ class TotoViewModel(
     init {
         // Initial bulletin load & starter coupon
         refreshBulletin(forceRefresh = false)
-        // In production, do not silently create an initial coupon from a
-        // hard-coded fixture before the official bulletin has loaded.
+        // In production, never create a coupon from a stale example fixture.
         if (applicationContext == null) {
             generateCoupon(FormulaType.GUARANTEE_14, "14 Garanti (N-1) Özel Başlangıç Kuponu")
         }
@@ -227,10 +226,15 @@ class TotoViewModel(
                                 )
                             }
                         }
-                        _bulletinMessage.value = "Resmî Spor Toto bülteni doğrulandı: ${freshMatches.size} maç."
+                        _bulletinMessage.value = if (freshMatches.all { it.hasAutomaticFavoriteData }) {
+                            "Nesine Spor Toto: 15 maç ve 1/0/2 oynanma yüzdeleri yüklendi."
+                        } else {
+                            "Resmî Spor Toto bülteni yüklendi: 15 maç. " +
+                                "Nesine oynanma yüzdeleri alınamadı; favorileri elle belirleyebilirsiniz."
+                        }
                     }
                 }.onFailure {
-                    _bulletinMessage.value = "Resmî Spor Toto bülteni alınamadı. İnterneti kontrol edip yeniden deneyin; örnek maç gösterilmiyor."
+                    _bulletinMessage.value = "Bülten alınamadı: ${it.message ?: "Bağlantınızı kontrol edip yeniden deneyin."}"
                 }
             } finally {
                 _isRefreshingBulletin.value = false
@@ -759,3 +763,4 @@ class TotoViewModel(
         )
     }
 }
+

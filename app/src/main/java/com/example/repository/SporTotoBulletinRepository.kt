@@ -9,6 +9,7 @@ import com.example.network.NetworkModule
 import com.example.network.ApiFootballLiveService
 import com.example.network.ScoreCardsLiveService
 import com.example.network.SporTotoApiService
+import com.example.network.NesineSportotoPageSource
 import com.example.network.model.BulletinMatchDto
 import com.example.network.model.WeeklyBulletinResponse
 import com.example.network.model.OfficialGameRound
@@ -100,6 +101,8 @@ class SporTotoBulletinRepositoryImpl(
         preferences?.getInt("provider_remaining", -1)?.takeIf { it >= 0 }
     private var lastSuccessfulRequestMs = 0L
     private val pollMutex = Mutex()
+    private val bulletinMutex = Mutex()
+    private val nesinePageSource = applicationContext?.applicationContext?.let(::NesineSportotoPageSource)
 
     private val _cachedBulletin = MutableStateFlow<WeeklyBulletinResponse?>(null)
     override val cachedBulletin: StateFlow<WeeklyBulletinResponse?> = _cachedBulletin.asStateFlow()
@@ -435,21 +438,80 @@ class SporTotoBulletinRepositoryImpl(
         )
     }
 
+    /**
+     * The publicly visible Nesine Spor Toto table publishes played percentages
+     * (not betting odds and not statistical win probabilities). Capture all 15
+     * rows together, so dates/teams and percentages cannot come from different
+     * weeks. A failed/incomplete capture must never be treated as a valid page.
+     */
+    private suspend fun fetchNesineBulletin(): WeeklyBulletinResponse {
+        val source = nesinePageSource
+            ?: throw IllegalStateException("Android WebView ile Nesine erişimi kullanılamıyor.")
+        val matches = source.fetch()
+        val orderedDates = matches.map { match ->
+            val parser = SimpleDateFormat("dd.MM.yyyy HH:mm", Locale("tr", "TR")).apply {
+                isLenient = false
+                timeZone = officialTimezone
+            }
+            checkNotNull(parser.parse(match.matchDate))
+        }.sorted()
+        val fmt = SimpleDateFormat("dd.MM.yyyy", Locale("tr", "TR")).apply {
+            timeZone = officialTimezone
+        }
+        val fetched = SimpleDateFormat("dd.MM.yyyy HH:mm", Locale("tr", "TR")).apply {
+            timeZone = officialTimezone
+        }.format(Date())
+        return WeeklyBulletinResponse(
+            weekNumber = 0, // The visible Nesine table does not identify a round number.
+            season = seasonCandidates().first(),
+            bulletinTitle = "Nesine Spor Toto • Güncel 15 Maç",
+            startDate = fmt.format(orderedDates.first()),
+            endDate = fmt.format(orderedDates.last()),
+            jackpotEstimateTL = 0.0,
+            isActive = orderedDates.last().time >= System.currentTimeMillis(),
+            matches = matches,
+            sourceName = "Nesine Spor Toto – oynanma yüzdeleri",
+            fetchedAt = fetched
+        )
+    }
+
     override suspend fun getWeeklyBulletin(forceRefresh: Boolean): Result<WeeklyBulletinResponse> =
         withContext(Dispatchers.IO) {
-            if (!forceRefresh) {
-                _cachedBulletin.value?.let { return@withContext Result.success(it) }
-            }
-            try {
-                val bulletin = fetchOfficialBulletin()
-                _cachedBulletin.value = bulletin
-                Result.success(bulletin)
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (error: Exception) {
-                // Preserve last verified data in memory but never report a
-                // network failure or made-up data as a successful refresh.
-                Result.failure(error)
+            bulletinMutex.withLock {
+                if (!forceRefresh) {
+                    _cachedBulletin.value?.let { return@withLock Result.success(it) }
+                }
+
+                var nesineFailure: Exception? = null
+                if (nesinePageSource != null) {
+                    try {
+                        return@withLock Result.success(fetchNesineBulletin().also {
+                            _cachedBulletin.value = it
+                        })
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (error: Exception) {
+                        nesineFailure = error
+                    }
+                }
+                try {
+                    // Reliable fallback: the national operator publishes the
+                    // fixtures, but not Nesine's playing percentages.
+                    val bulletin = fetchOfficialBulletin()
+                    _cachedBulletin.value = bulletin
+                    Result.success(bulletin)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    Result.failure(
+                        IllegalStateException(
+                            "Nesine oynanma yüzdeleri ve resmî Spor Toto maç programı alınamadı. " +
+                                "Nesine: ${nesineFailure?.message ?: "Kullanılamıyor"}. " +
+                                "Resmî kaynak: ${error.message}",
+                            error
+                        )
+                    )
+                }
             }
         }
 
@@ -465,9 +527,7 @@ class SporTotoBulletinRepositoryImpl(
         }
 
     override suspend fun refreshLiveOdds(): Result<List<BulletinMatchDto>> =
-        Result.failure(UnsupportedOperationException(
-            "Resmî Spor Toto maç programı 1/0/2 oynanma yüzdelerini ve canlı oranları yayımlamıyor."
-        ))
+        getWeeklyBulletin(forceRefresh = true).map { it.matches }
 
     override suspend fun getDomainMatches(forceRefresh: Boolean): Result<List<TotoMatch>> {
         return getWeeklyBulletin(forceRefresh).map { bulletin ->

@@ -191,9 +191,16 @@ fun MatchAnalysisScreen(
                     color = TextSecondary,
                     fontSize = 10.sp
                 )
+                if (matches.size == 15 && matches.all { it.hasAutomaticFavoriteData }) {
+                    Text(
+                        text = "1 / 0 / 2 yüzdeleri: Nesine'deki oynanma oranlarıdır, maç sonucu tahmini değildir.",
+                        color = ElectricCyan,
+                        fontSize = 10.sp
+                    )
+                }
                 if (matches.any { !it.hasAutomaticFavoriteData }) {
                     Text(
-                        text = "Resmî maç listesi oynanma yüzdesi içermez. Sürpriz filtreleri için favoriyi 1/0/2 olarak elle belirleyin.",
+                        text = "Nesine oynanma yüzdeleri alınamadı. Resmî maç listesinde bu oranlar yok; sürpriz filtreleri için favoriyi 1/0/2 olarak elle belirleyin.",
                         color = NeonAmber,
                         fontSize = 10.sp
                     )
@@ -801,3 +808,4 @@ private fun ModernOutcomeChip(
         }
     }
 }
+

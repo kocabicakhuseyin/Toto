@@ -100,12 +100,13 @@ fun BulletinMatchDto.toDomainTotoMatch(): TotoMatch {
         homeTeam = homeTeam.uppercase().trim(),
         awayTeam = awayTeam.uppercase().trim(),
         matchDate = matchDate,
-        // The official program supplies fixtures, not 1/0/2 playing percentages.
-        // Empty lists mean "unavailable", never a fabricated 50/25/25 estimate.
+        // A single verified source supplies one 1/0/2 played-percent triplet.
+        // Never repeat that value as four fictional providers. The official
+        // Teşkilat fixture-only fallback still has empty/unavailable lists.
         probability = MatchProbability(
-            home = probabilities?.let { List(4) { _ -> it.homeProbability } } ?: emptyList(),
-            draw = probabilities?.let { List(4) { _ -> it.drawProbability } } ?: emptyList(),
-            away = probabilities?.let { List(4) { _ -> it.awayProbability } } ?: emptyList()
+            home = probabilities?.let { listOf(it.homeProbability) } ?: emptyList(),
+            draw = probabilities?.let { listOf(it.drawProbability) } ?: emptyList(),
+            away = probabilities?.let { listOf(it.awayProbability) } ?: emptyList()
         )
     )
 }
