@@ -37,18 +37,10 @@ object GuaranteeFormulaEngine {
     ): GuaranteeGenerationResult {
         val startTime = System.currentTimeMillis()
 
-        // 1. Extract selections per match. If empty, default to highest probability outcome.
+        // 1. Extract selections per match. If empty, use the automatic or manually chosen match favorite.
         val optionsPerMatch = matches.map { match ->
             if (match.selections.isEmpty()) {
-                val h = match.probability.home.firstOrNull() ?: 50
-                val d = match.probability.draw.firstOrNull() ?: 25
-                val a = match.probability.away.firstOrNull() ?: 25
-                val best = when {
-                    h >= d && h >= a -> PredictionOutcome.HOME
-                    d >= h && d >= a -> PredictionOutcome.DRAW
-                    else -> PredictionOutcome.AWAY
-                }
-                listOf(best)
+                listOf(match.favoriteOutcome)
             } else {
                 match.selections.toList()
             }

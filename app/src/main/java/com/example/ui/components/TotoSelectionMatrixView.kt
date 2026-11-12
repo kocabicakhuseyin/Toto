@@ -21,10 +21,15 @@ import androidx.compose.material.icons.filled.GridOn
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -61,6 +66,7 @@ private val CellBorder = Color(0xFF1E293B)
 fun TotoSelectionMatrixView(
     matches: List<TotoMatch>,
     onToggleOutcome: (matchId: Int, outcome: PredictionOutcome) -> Unit,
+    onChangeFavorite: (matchId: Int, outcome: PredictionOutcome?) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier
 ) {
     val scrollState = rememberScrollState()
@@ -130,6 +136,13 @@ fun TotoSelectionMatrixView(
 
             Spacer(modifier = Modifier.height(10.dp))
 
+            Text(
+                text = "Fav.: Gösterilen 1/2 yüzdesi yüksek taraf. Değiştirmek için hücreye dokunun (* = elle).",
+                color = TextSecondary,
+                fontSize = 10.sp,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = "15 maçın tamamı için tabloyu sağa kaydırın →",
                 color = ElectricCyan,
@@ -217,6 +230,12 @@ fun TotoSelectionMatrixView(
                         }
                     }
 
+                    // Favorite is distinct from the user's 1 / X / 2 predictions.
+                    MatrixFavoriteRow(
+                        matches = matches,
+                        onChangeFavorite = onChangeFavorite
+                    )
+
                     // ROW 1: "2" (Deplasman)
                     MatrixOutcomeRow(
                         outcome = PredictionOutcome.AWAY,
@@ -294,6 +313,91 @@ fun TotoSelectionMatrixView(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun MatrixFavoriteRow(
+    matches: List<TotoMatch>,
+    onChangeFavorite: (Int, PredictionOutcome?) -> Unit
+) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(width = 38.dp, height = 30.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(Color(0xFF065F46)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text("Fav.", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+        }
+        matches.take(15).forEach { match ->
+            var expanded by remember(match.id) { mutableStateOf(false) }
+            val isManual = match.favoriteOverride != null
+            Box {
+                Box(
+                    modifier = Modifier
+                        .size(width = 28.dp, height = 30.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(if (isManual) Color(0xFF78350F) else Color(0xFF064E3B))
+                        .border(
+                            1.dp,
+                            if (isManual) CasinoGold else ElectricGreen,
+                            RoundedCornerShape(4.dp)
+                        )
+                        .clickable { expanded = true }
+                        .testTag("matrix_favorite_${match.id}"),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = match.favoriteOutcome.code + if (isManual) "*" else "",
+                        color = Color.White,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Black
+                    )
+                }
+                DropdownMenu(
+                    expanded = expanded,
+                    onDismissRequest = { expanded = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Otomatik (${match.automaticFavoriteOutcome.code})") },
+                        onClick = {
+                            onChangeFavorite(match.id, null)
+                            expanded = false
+                        },
+                        modifier = Modifier.testTag("matrix_favorite_auto_${match.id}")
+                    )
+                    listOf(PredictionOutcome.HOME, PredictionOutcome.AWAY).forEach { choice ->
+                        DropdownMenuItem(
+                            text = { Text("Elle: ${choice.code}") },
+                            onClick = {
+                                onChangeFavorite(match.id, choice)
+                                expanded = false
+                            },
+                            modifier = Modifier.testTag("matrix_favorite_${choice.code}_${match.id}")
+                        )
+                    }
+                }
+            }
+        }
+        Box(
+            modifier = Modifier
+                .size(width = 34.dp, height = 30.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(Color(0xFF1E293B)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "${matches.count { it.favoriteOverride != null }}*",
+                color = CasinoGoldLight,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold
+            )
         }
     }
 }

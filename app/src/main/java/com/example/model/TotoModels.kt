@@ -21,8 +21,23 @@ data class TotoMatch(
     val probability: MatchProbability,
     val selections: Set<PredictionOutcome> = emptySet(),
     val isBanko: Boolean = false,
-    val isFavorited: Boolean = false
-)
+    val isFavorited: Boolean = false,
+    // Null = automatically choose the 1/2 side with the highest available percentage.
+    // Manual choices deliberately exclude draws: the favorite is a team (1 or 2).
+    val favoriteOverride: PredictionOutcome? = null
+) {
+    val automaticFavoriteOutcome: PredictionOutcome
+        get() {
+            val homePercentage = probability.home.firstOrNull() ?: 0
+            val awayPercentage = probability.away.firstOrNull() ?: 0
+            return if (homePercentage >= awayPercentage) PredictionOutcome.HOME
+            else PredictionOutcome.AWAY
+        }
+
+    val favoriteOutcome: PredictionOutcome
+        get() = favoriteOverride?.takeIf { it != PredictionOutcome.DRAW }
+            ?: automaticFavoriteOutcome
+}
 
 enum class MatchStatus(val label: String, val badgeColorHex: Long) {
     UPCOMING("Başlamadı", 0xFF64748B),

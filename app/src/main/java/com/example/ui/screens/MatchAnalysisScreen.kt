@@ -86,6 +86,7 @@ import androidx.compose.material.icons.filled.Notifications
 fun MatchAnalysisScreen(
     matches: List<TotoMatch>,
     onTogglePrediction: (Int, PredictionOutcome) -> Unit,
+    onSetMatchFavorite: (Int, PredictionOutcome?) -> Unit = { _, _ -> },
     onSelectAllFavorites: () -> Unit,
     onApplyQuickDoubles: () -> Unit,
     onApplyQuickDoubles10To15: () -> Unit = {},
@@ -192,7 +193,8 @@ fun MatchAnalysisScreen(
             item {
                 TotoSelectionMatrixView(
                     matches = matches,
-                    onToggleOutcome = onTogglePrediction
+                    onToggleOutcome = onTogglePrediction,
+                    onChangeFavorite = onSetMatchFavorite
                 )
             }
 
@@ -226,7 +228,8 @@ fun MatchAnalysisScreen(
                     match = match,
                     isFavorited = favoritedMatchNumbers.contains(match.matchNumber),
                     onToggleFavorite = { onToggleFavorite(match.matchNumber) },
-                    onToggleOutcome = { outcome -> onTogglePrediction(match.id, outcome) }
+                    onToggleOutcome = { outcome -> onTogglePrediction(match.id, outcome) },
+                    onSetFavorite = { favorite -> onSetMatchFavorite(match.id, favorite) }
                 )
             }
         }
@@ -462,7 +465,8 @@ private fun ModernMatchCard(
     match: TotoMatch,
     isFavorited: Boolean = false,
     onToggleFavorite: () -> Unit = {},
-    onToggleOutcome: (PredictionOutcome) -> Unit
+    onToggleOutcome: (PredictionOutcome) -> Unit,
+    onSetFavorite: (PredictionOutcome?) -> Unit
 ) {
     Card(
         modifier = Modifier
@@ -588,6 +592,58 @@ private fun ModernMatchCard(
                     textAlign = TextAlign.End,
                     modifier = Modifier.weight(1f)
                 )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // The favorite used by surprise filters is independent of 1/X/2
+            // coupon choices and of the star-based followed-match feature.
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(
+                    text = "Filtre favorisi:",
+                    color = TextSecondary,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                listOf(PredictionOutcome.HOME, PredictionOutcome.AWAY).forEach { side ->
+                    val chosen = match.favoriteOutcome == side
+                    Box(
+                        modifier = Modifier
+                            .size(width = 34.dp, height = 30.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(if (chosen) Color(0xFF065F46) else Color(0xFF1E293B))
+                            .border(
+                                1.dp,
+                                if (chosen) ElectricGreen else DarkCardBorder,
+                                RoundedCornerShape(6.dp)
+                            )
+                            .clickable { onSetFavorite(side) }
+                            .testTag("match_favorite_${match.matchNumber}_${side.code}"),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            side.code,
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Black
+                        )
+                    }
+                }
+                TextButton(
+                    onClick = { onSetFavorite(null) },
+                    modifier = Modifier.testTag("match_favorite_auto_${match.matchNumber}")
+                ) {
+                    Text(
+                        text = if (match.favoriteOverride == null) "Oto ✓"
+                            else "Oto (${match.automaticFavoriteOutcome.code})",
+                        color = if (match.favoriteOverride == null) ElectricGreen else CasinoGold,
+                        fontSize = 10.sp
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(12.dp))

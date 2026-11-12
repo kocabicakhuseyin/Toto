@@ -44,15 +44,7 @@ object FormulaEngine {
     ): List<TotoColumn> {
         val optionsPerMatch = matches.map { match ->
             if (match.selections.isEmpty()) {
-                val h = match.probability.home.firstOrNull() ?: 50
-                val d = match.probability.draw.firstOrNull() ?: 25
-                val a = match.probability.away.firstOrNull() ?: 25
-                val best = when {
-                    h >= d && h >= a -> PredictionOutcome.HOME
-                    d >= h && d >= a -> PredictionOutcome.DRAW
-                    else -> PredictionOutcome.AWAY
-                }
-                listOf(best)
+                listOf(match.favoriteOutcome)
             } else {
                 match.selections.toList()
             }
@@ -77,15 +69,7 @@ object FormulaEngine {
 
         val optionsPerMatch = matches.map { match ->
             if (match.selections.isEmpty()) {
-                val h = match.probability.home.firstOrNull() ?: 50
-                val d = match.probability.draw.firstOrNull() ?: 25
-                val a = match.probability.away.firstOrNull() ?: 25
-                val best = when {
-                    h >= d && h >= a -> PredictionOutcome.HOME
-                    d >= h && d >= a -> PredictionOutcome.DRAW
-                    else -> PredictionOutcome.AWAY
-                }
-                listOf(best)
+                listOf(match.favoriteOutcome)
             } else {
                 match.selections.toList()
             }

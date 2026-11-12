@@ -38,10 +38,35 @@ import com.example.model.MatchLiveScore
 
 class TotoViewModel(
     private val bulletinRepository: SporTotoBulletinRepository = SporTotoBulletinRepositoryImpl(),
-    private val walletRepository: WalletRepository? = null
+    private val walletRepository: WalletRepository? = null,
+    applicationContext: Context? = null
 ) : ViewModel() {
 
-    private val _matches = MutableStateFlow<List<TotoMatch>>(createInitialMatches())
+    private val favoritePreferences = applicationContext?.applicationContext
+        ?.getSharedPreferences("toto_manual_match_favorites", Context.MODE_PRIVATE)
+
+    // Match numbers repeat every week. A saved manual favorite belongs only to
+    // this particular fixture, never to the next week's match at that position.
+    private fun fixtureKey(match: TotoMatch): String = buildString {
+        append(match.matchDate.trim())
+        append('|')
+        append(match.homeTeam.trim().uppercase(Locale.ROOT))
+        append('|')
+        append(match.awayTeam.trim().uppercase(Locale.ROOT))
+    }
+
+    private fun withSavedFavorite(match: TotoMatch): TotoMatch {
+        val override = when (favoritePreferences?.getString(fixtureKey(match), null)) {
+            PredictionOutcome.HOME.code -> PredictionOutcome.HOME
+            PredictionOutcome.AWAY.code -> PredictionOutcome.AWAY
+            else -> null
+        }
+        return match.copy(favoriteOverride = override)
+    }
+
+    private val _matches = MutableStateFlow<List<TotoMatch>>(
+        createInitialMatches().map(::withSavedFavorite)
+    )
     val matches: StateFlow<List<TotoMatch>> = _matches.asStateFlow()
 
     val currentBulletin: StateFlow<WeeklyBulletinResponse?> = bulletinRepository.cachedBulletin
@@ -180,8 +205,21 @@ class TotoViewModel(
                 val result = bulletinRepository.getDomainMatches(forceRefresh)
                 result.onSuccess { freshMatches ->
                     if (freshMatches.isNotEmpty()) {
-                        _matches.value = freshMatches
-                        _bulletinMessage.value = "Haftalık bülten ve canlı oranlar güncellendi!"
+                        val previous = _matches.value.associateBy(::fixtureKey)
+                        _matches.value = freshMatches.map { fresh ->
+                            val current = previous[fixtureKey(fresh)]
+                            if (current == null) {
+                                withSavedFavorite(fresh)
+                            } else {
+                                // Keep the current week's edits after odds refresh.
+                                fresh.copy(
+                                    selections = current.selections,
+                                    isBanko = current.isBanko,
+                                    favoriteOverride = current.favoriteOverride
+                                )
+                            }
+                        }
+                        _bulletinMessage.value = "Haftalık bülten ve oranlar güncellendi!"
                     }
                 }.onFailure {
                     _bulletinMessage.value = "Bülten güncellenemedi, yerel veriler kullanılıyor."
@@ -216,18 +254,27 @@ class TotoViewModel(
         }
     }
 
+    /** A null selection restores the highest-percentage side (automatic mode). */
+    fun setMatchFavorite(matchId: Int, selection: PredictionOutcome?) {
+        if (selection == PredictionOutcome.DRAW) return
+        val match = _matches.value.firstOrNull { it.id == matchId } ?: return
+        val key = fixtureKey(match)
+        favoritePreferences?.edit()?.apply {
+            if (selection == null) remove(key)
+            else putString(key, selection.code)
+            apply()
+        }
+        _matches.update { current ->
+            current.map { item ->
+                if (item.id == matchId) item.copy(favoriteOverride = selection) else item
+            }
+        }
+    }
+
     fun selectAllFavorites() {
         _matches.update { list ->
             list.map { match ->
-                val h = match.probability.home.firstOrNull() ?: 50
-                val d = match.probability.draw.firstOrNull() ?: 25
-                val a = match.probability.away.firstOrNull() ?: 25
-                val best = when {
-                    h >= d && h >= a -> PredictionOutcome.HOME
-                    d >= h && d >= a -> PredictionOutcome.DRAW
-                    else -> PredictionOutcome.AWAY
-                }
-                match.copy(selections = setOf(best))
+                match.copy(selections = setOf(match.favoriteOutcome))
             }
         }
     }
@@ -261,15 +308,7 @@ class TotoViewModel(
                     match.copy(selections = set)
                 } else {
                     if (match.selections.isEmpty()) {
-                        val h = match.probability.home.firstOrNull() ?: 50
-                        val d = match.probability.draw.firstOrNull() ?: 25
-                        val a = match.probability.away.firstOrNull() ?: 25
-                        val best = when {
-                            h >= d && h >= a -> PredictionOutcome.HOME
-                            d >= h && d >= a -> PredictionOutcome.DRAW
-                            else -> PredictionOutcome.AWAY
-                        }
-                        match.copy(selections = setOf(best))
+                        match.copy(selections = setOf(match.favoriteOutcome))
                     } else match
                 }
             }
@@ -281,9 +320,7 @@ class TotoViewModel(
         _matches.update { list ->
             list.mapIndexed { idx, match ->
                 if (idx in 0..8) {
-                    val h = match.probability.home.firstOrNull() ?: 50
-                    val a = match.probability.away.firstOrNull() ?: 25
-                    val set = if (h >= a) {
+                    val set = if (match.favoriteOutcome == PredictionOutcome.HOME) {
                         setOf(PredictionOutcome.HOME, PredictionOutcome.DRAW)
                     } else {
                         setOf(PredictionOutcome.DRAW, PredictionOutcome.AWAY)
@@ -291,15 +328,7 @@ class TotoViewModel(
                     match.copy(selections = set)
                 } else {
                     if (match.selections.isEmpty()) {
-                        val h = match.probability.home.firstOrNull() ?: 50
-                        val d = match.probability.draw.firstOrNull() ?: 25
-                        val a = match.probability.away.firstOrNull() ?: 25
-                        val best = when {
-                            h >= d && h >= a -> PredictionOutcome.HOME
-                            d >= h && d >= a -> PredictionOutcome.DRAW
-                            else -> PredictionOutcome.AWAY
-                        }
-                        match.copy(selections = setOf(best))
+                        match.copy(selections = setOf(match.favoriteOutcome))
                     } else match
                 }
             }

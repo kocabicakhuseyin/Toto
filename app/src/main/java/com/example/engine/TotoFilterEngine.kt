@@ -125,16 +125,7 @@ object TotoFilterEngine {
     /** Identical empty-selection fallback to full-matrix generation. */
     private fun optionsForMatch(match: TotoMatch): List<PredictionOutcome> {
         if (match.selections.isNotEmpty()) return match.selections.sortedBy { it.ordinal }
-        val h = match.probability.home.firstOrNull() ?: 33
-        val d = match.probability.draw.firstOrNull() ?: 33
-        val a = match.probability.away.firstOrNull() ?: 33
-        return listOf(
-            when {
-                h >= d && h >= a -> PredictionOutcome.HOME
-                d >= h && d >= a -> PredictionOutcome.DRAW
-                else -> PredictionOutcome.AWAY
-            }
-        )
+        return listOf(match.favoriteOutcome)
     }
 
     /** Computes attainable number buttons from current 1/X/2 selections. */
@@ -247,28 +238,16 @@ object TotoFilterEngine {
      * - hard surprise (ters sürpriz)
      */
     fun analyzeMatchOutcome(match: TotoMatch, outcome: PredictionOutcome): OutcomeType {
-        val h = match.probability.home.firstOrNull() ?: 33
-        val d = match.probability.draw.firstOrNull() ?: 33
-        val a = match.probability.away.firstOrNull() ?: 33
+        val favorite = match.favoriteOutcome
+        if (outcome == favorite) return OutcomeType.FAVORITE
 
-        val favorite = when {
-            h >= d && h >= a -> PredictionOutcome.HOME
-            d >= h && d >= a -> PredictionOutcome.DRAW
-            else -> PredictionOutcome.AWAY
+        // A draw is always a normal surprise. The opposite winning team is
+        // a hard surprise, even if it was selected as a single/banko.
+        return if (outcome == PredictionOutcome.DRAW) {
+            OutcomeType.SURPRISE
+        } else {
+            OutcomeType.HARD_SURPRISE
         }
-
-        if (outcome == favorite) {
-            return OutcomeType.FAVORITE
-        }
-
-        // It is a surprise
-        val isHardSurprise = when (favorite) {
-            PredictionOutcome.HOME -> outcome == PredictionOutcome.AWAY
-            PredictionOutcome.AWAY -> outcome == PredictionOutcome.HOME
-            PredictionOutcome.DRAW -> (outcome == PredictionOutcome.AWAY && a < h) || (outcome == PredictionOutcome.HOME && h < a)
-        }
-
-        return if (isHardSurprise) OutcomeType.HARD_SURPRISE else OutcomeType.SURPRISE
     }
 
     enum class OutcomeType {

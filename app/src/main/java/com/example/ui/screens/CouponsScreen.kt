@@ -1140,8 +1140,7 @@ fun CouponProbabilityStatsCard(
                     PredictionOutcome.AWAY -> a
                 }
                 totalMatchProbSum += pickProb
-                val maxProb = maxOf(h, maxOf(d, a))
-                if (pickProb == maxProb) {
+                if (pred == match.favoriteOutcome) {
                     favoritePicks++
                 }
             }
