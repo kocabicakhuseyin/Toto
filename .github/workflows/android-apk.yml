@@ -27,6 +27,28 @@ jobs:
           echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-unset}"
           command -v sdkmanager || true
           ls -la "${ANDROID_HOME:-/usr/local/lib/android/sdk}/platforms" || true
+      - name: Probe official Spor Toto weekly data
+        continue-on-error: true
+        run: |
+          python3 - <<'PY'
+          import json, urllib.parse, urllib.request
+          base = 'https://webapi.sportoto.gov.tr/api/'
+          url = base + 'GameRound?' + urllib.parse.urlencode({'year':'2026/2027','isPublished':'true'})
+          headers = {'Accept':'application/json','User-Agent':'SporTotoHedef15/1.0'}
+          with urllib.request.urlopen(urllib.request.Request(url,headers=headers),timeout=20) as res:
+              body=json.load(res)
+          rounds=body.get('object') or []
+          print('round_count',len(rounds),'keys',sorted(body.keys()))
+          top=sorted(rounds,key=lambda x:x.get('roundCloseDate') or '',reverse=True)[:5]
+          print('recent_rounds',[{k:v.get(k) for k in ('id','name','roundCloseDate')} for v in top])
+          if not top:
+              raise RuntimeError('No official rounds')
+          mid=top[0]['id']
+          with urllib.request.urlopen(urllib.request.Request(base+'GameMatch/GetGameMatches/?gameRoundId='+str(mid),headers=headers),timeout=20) as res:
+              games=json.load(res)
+          m=games.get('object') or []
+          print('latest_round_match_count',len(m),'first_match',m[0] if m else None)
+          PY
       - name: Create debug keystore
         run: |
           keytool -genkeypair -v -keystore debug.keystore -alias androiddebugkey -storepass android -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
