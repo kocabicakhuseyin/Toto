@@ -10,6 +10,7 @@ import { timingSafeEqual } from "node:crypto";
 import { Buffer } from "node:buffer";
 import { connect } from "@cloudflare/playwright";
 import {
+  chooseNesineLiveTarget,
   expectedChecked,
   isOfficialProgram,
   MATCH_COUNT,
@@ -101,9 +102,16 @@ async function programPage(browser) {
 
 async function liveUrl(env, sessionId) {
   const targets = await env.BROWSER.devtools.listTargets(sessionId);
-  const page = targets.find((item) => item.type === "page" && isOfficialProgram(item.url)) ||
-    targets.find((item) => item.type === "page");
-  if (!page) throw new Error("Canlı görünüm için sekme bulunamadı.");
+  // A Playwright-owned tab may disappear after its CDP client disconnects.
+  // Never hand the user the browser's initial about:blank tab: create a
+  // persistent Browser Run target for the official program instead.
+  let page = chooseNesineLiveTarget(targets);
+  if (!page) {
+    page = await env.BROWSER.devtools.newTarget(sessionId, NESINE_URL);
+  }
+  if (!page || typeof page.id !== "string" || !page.id) {
+    throw new Error("Nesine için canlı sekme oluşturulamadı.");
+  }
   const result = await env.BROWSER.getLiveView(sessionId, {
     targetId: page.id,
     mode: "tab",

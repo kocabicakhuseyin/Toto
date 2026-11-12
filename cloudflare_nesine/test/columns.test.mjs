@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { expectedChecked, isOfficialProgram, normalizeColumns, validSessionId } from "../src/columns.mjs";
+import {
+  chooseNesineLiveTarget, expectedChecked, isOfficialProgram,
+  isNesineSite, normalizeColumns, validSessionId,
+} from "../src/columns.mjs";
 
 test("draw alias 0 becomes X without widening a column", () => {
   assert.deepEqual(normalizeColumns(["111110111110111"]), ["11111X11111X111"]);
@@ -32,6 +35,18 @@ test("reject redirects or untrusted hostnames", () => {
   assert.ok(!isOfficialProgram("http://www.nesine.com/sportoto"));
   assert.ok(!isOfficialProgram("https://www.nesine.com.evil.test/sportoto"));
   assert.ok(!isOfficialProgram("https://www.nesine.com/iddaa"));
+  assert.ok(isNesineSite("https://www.nesine.com/uye-girisi"));
+  assert.ok(!isNesineSite("https://www.nesine.com.evil.test/uye-girisi"));
+});
+
+test("Live View ignores about:blank and prefers the official Sportoto tab", () => {
+  const blank = { id: "blank", type: "page", url: "about:blank" };
+  const login = { id: "login", type: "page", url: "https://www.nesine.com/uye-girisi" };
+  const sportoto = { id: "program", type: "page", url: "https://www.nesine.com/sportoto" };
+  assert.equal(chooseNesineLiveTarget([blank]), null);
+  assert.equal(chooseNesineLiveTarget([blank, login])?.id, "login");
+  assert.equal(chooseNesineLiveTarget([blank, login, sportoto])?.id, "program");
+  assert.equal(chooseNesineLiveTarget([blank, { id: "fake", type: "page", url: "https://www.nesine.com.evil.test/sportoto" }]), null);
 });
 
 test("session identifiers have a constrained shape", () => {
