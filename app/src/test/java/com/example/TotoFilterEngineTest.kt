@@ -67,12 +67,11 @@ class TotoFilterEngineTest {
         assertEquals(0, analysis.countOf2s)
         assertEquals(15, analysis.maxConsecutive1s)
 
-        // 1/2 are the only favorite teams. Draws never become a team
-        // favorite; matches 14..15 have tied home/away rates and choose HOME.
-        // Matches 11..13 have AWAY favorites, so these are hard surprises.
-        assertEquals(3, analysis.totalSurprises)
+        // Matches 11..13 have AWAY favorites (3 hard surprises), while
+        // 14..15 have DRAW favorites (2 normal surprises for their HOME results).
+        assertEquals(5, analysis.totalSurprises)
         assertEquals(0, analysis.surprises1To9)
-        assertEquals(3, analysis.surprises10To15)
+        assertEquals(5, analysis.surprises10To15)
     }
 
     @Test
@@ -568,7 +567,7 @@ class TotoFilterEngineTest {
 
 
     @Test
-    fun testAutomaticFavoriteUsesHighestHomeOrAwayPercentage() {
+    fun testAutomaticFavoriteUsesHighestOneDrawTwoPercentage() {
         val away = TotoMatch(
             99, 1, "Ev", "Deplasman", "2026-11-15",
             MatchProbability(listOf(12), listOf(20), listOf(68))
@@ -587,10 +586,25 @@ class TotoFilterEngineTest {
         val drawHighest = away.copy(
             probability = MatchProbability(listOf(30), listOf(50), listOf(20))
         )
-        assertEquals(PredictionOutcome.HOME, drawHighest.favoriteOutcome)
+        assertEquals(PredictionOutcome.DRAW, drawHighest.automaticFavoriteOutcome)
+        assertEquals(PredictionOutcome.DRAW, drawHighest.favoriteOutcome)
+        assertEquals(
+            TotoFilterEngine.OutcomeType.FAVORITE,
+            TotoFilterEngine.analyzeMatchOutcome(drawHighest, PredictionOutcome.DRAW)
+        )
         assertEquals(
             TotoFilterEngine.OutcomeType.SURPRISE,
-            TotoFilterEngine.analyzeMatchOutcome(drawHighest, PredictionOutcome.DRAW)
+            TotoFilterEngine.analyzeMatchOutcome(drawHighest, PredictionOutcome.HOME)
+        )
+        assertEquals(
+            TotoFilterEngine.OutcomeType.SURPRISE,
+            TotoFilterEngine.analyzeMatchOutcome(drawHighest, PredictionOutcome.AWAY)
+        )
+        val manualDraw = away.copy(favoriteOverride = PredictionOutcome.DRAW)
+        assertEquals(PredictionOutcome.DRAW, manualDraw.favoriteOutcome)
+        assertEquals(
+            TotoFilterEngine.OutcomeType.SURPRISE,
+            TotoFilterEngine.analyzeMatchOutcome(manualDraw, PredictionOutcome.HOME)
         )
 
         val manual = away.copy(favoriteOverride = PredictionOutcome.HOME)
@@ -614,7 +628,12 @@ class TotoFilterEngineTest {
         assertEquals(PredictionOutcome.AWAY, manual.favoriteOverride)
 
         vm.setMatchFavorite(13, PredictionOutcome.DRAW)
-        assertEquals(PredictionOutcome.AWAY, vm.matches.value.first { it.matchNumber == 13 }.favoriteOutcome)
+        assertEquals(PredictionOutcome.DRAW, vm.matches.value.first { it.matchNumber == 13 }.favoriteOutcome)
+        vm.selectAllFavorites()
+        assertEquals(
+            setOf(PredictionOutcome.DRAW),
+            vm.matches.value.first { it.matchNumber == 13 }.selections
+        )
 
         vm.setMatchFavorite(13, null)
         val reset = vm.matches.value.first { it.matchNumber == 13 }

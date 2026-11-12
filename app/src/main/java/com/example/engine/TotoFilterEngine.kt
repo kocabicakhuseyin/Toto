@@ -241,13 +241,12 @@ object TotoFilterEngine {
         val favorite = match.favoriteOutcome
         if (outcome == favorite) return OutcomeType.FAVORITE
 
-        // A draw is always a normal surprise. The opposite winning team is
-        // a hard surprise, even if it was selected as a single/banko.
-        return if (outcome == PredictionOutcome.DRAW) {
-            OutcomeType.SURPRISE
-        } else {
-            OutcomeType.HARD_SURPRISE
-        }
+        // When 0 is the favorite, 1 or 2 is a normal surprise, not a
+        // reverse 1-vs-2 upset. With a team favorite, the opposite team is
+        // a hard surprise; a non-favorite draw is a normal surprise.
+        return if (outcome == PredictionOutcome.DRAW ||
+            favorite == PredictionOutcome.DRAW
+        ) OutcomeType.SURPRISE else OutcomeType.HARD_SURPRISE
     }
 
     enum class OutcomeType {

@@ -58,6 +58,7 @@ class TotoViewModel(
     private fun withSavedFavorite(match: TotoMatch): TotoMatch {
         val override = when (favoritePreferences?.getString(fixtureKey(match), null)) {
             PredictionOutcome.HOME.code -> PredictionOutcome.HOME
+            PredictionOutcome.DRAW.code -> PredictionOutcome.DRAW
             PredictionOutcome.AWAY.code -> PredictionOutcome.AWAY
             else -> null
         }
@@ -256,7 +257,6 @@ class TotoViewModel(
 
     /** A null selection restores the highest-percentage side (automatic mode). */
     fun setMatchFavorite(matchId: Int, selection: PredictionOutcome?) {
-        if (selection == PredictionOutcome.DRAW) return
         val match = _matches.value.firstOrNull { it.id == matchId } ?: return
         val key = fixtureKey(match)
         favoritePreferences?.edit()?.apply {
@@ -320,10 +320,19 @@ class TotoViewModel(
         _matches.update { list ->
             list.mapIndexed { idx, match ->
                 if (idx in 0..8) {
-                    val set = if (match.favoriteOutcome == PredictionOutcome.HOME) {
-                        setOf(PredictionOutcome.HOME, PredictionOutcome.DRAW)
-                    } else {
-                        setOf(PredictionOutcome.DRAW, PredictionOutcome.AWAY)
+                    val set = when (match.favoriteOutcome) {
+                        PredictionOutcome.HOME ->
+                            setOf(PredictionOutcome.HOME, PredictionOutcome.DRAW)
+                        PredictionOutcome.AWAY ->
+                            setOf(PredictionOutcome.DRAW, PredictionOutcome.AWAY)
+                        PredictionOutcome.DRAW -> {
+                            // Include the favorite 0 and whichever team has
+                            // the higher percentage in this quick double.
+                            val home = match.probability.home.firstOrNull() ?: 0
+                            val away = match.probability.away.firstOrNull() ?: 0
+                            if (home >= away) setOf(PredictionOutcome.HOME, PredictionOutcome.DRAW)
+                            else setOf(PredictionOutcome.DRAW, PredictionOutcome.AWAY)
+                        }
                     }
                     match.copy(selections = set)
                 } else {

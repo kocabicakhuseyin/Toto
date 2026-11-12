@@ -137,7 +137,7 @@ fun TotoSelectionMatrixView(
             Spacer(modifier = Modifier.height(10.dp))
 
             Text(
-                text = "Fav.: Gösterilen 1/2 yüzdesi yüksek taraf. Değiştirmek için hücreye dokunun (* = elle).",
+                text = "Fav.: Gösterilen 1/0/2 yüzdesi en yüksek sonuç. Hücreye dokunup değiştirin (* = elle).",
                 color = TextSecondary,
                 fontSize = 10.sp,
                 modifier = Modifier.fillMaxWidth()
@@ -354,7 +354,7 @@ private fun MatrixFavoriteRow(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = match.favoriteOutcome.code + if (isManual) "*" else "",
+                        text = match.favoriteOutcome.label + if (isManual) "*" else "",
                         color = Color.White,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Black
@@ -365,16 +365,16 @@ private fun MatrixFavoriteRow(
                     onDismissRequest = { expanded = false }
                 ) {
                     DropdownMenuItem(
-                        text = { Text("Otomatik (${match.automaticFavoriteOutcome.code})") },
+                        text = { Text("Otomatik (${match.automaticFavoriteOutcome.label})") },
                         onClick = {
                             onChangeFavorite(match.id, null)
                             expanded = false
                         },
                         modifier = Modifier.testTag("matrix_favorite_auto_${match.id}")
                     )
-                    listOf(PredictionOutcome.HOME, PredictionOutcome.AWAY).forEach { choice ->
+                    listOf(PredictionOutcome.HOME, PredictionOutcome.DRAW, PredictionOutcome.AWAY).forEach { choice ->
                         DropdownMenuItem(
-                            text = { Text("Elle: ${choice.code}") },
+                            text = { Text("Elle: ${choice.label}") },
                             onClick = {
                                 onChangeFavorite(match.id, choice)
                                 expanded = false

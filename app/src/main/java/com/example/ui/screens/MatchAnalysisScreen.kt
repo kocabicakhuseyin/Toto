@@ -609,7 +609,7 @@ private fun ModernMatchCard(
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold
                 )
-                listOf(PredictionOutcome.HOME, PredictionOutcome.AWAY).forEach { side ->
+                listOf(PredictionOutcome.HOME, PredictionOutcome.DRAW, PredictionOutcome.AWAY).forEach { side ->
                     val chosen = match.favoriteOutcome == side
                     Box(
                         modifier = Modifier
@@ -626,7 +626,7 @@ private fun ModernMatchCard(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            side.code,
+                            side.label,
                             color = Color.White,
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Black
@@ -639,7 +639,7 @@ private fun ModernMatchCard(
                 ) {
                     Text(
                         text = if (match.favoriteOverride == null) "Oto ✓"
-                            else "Oto (${match.automaticFavoriteOutcome.code})",
+                            else "Oto (${match.automaticFavoriteOutcome.label})",
                         color = if (match.favoriteOverride == null) ElectricGreen else CasinoGold,
                         fontSize = 10.sp
                     )

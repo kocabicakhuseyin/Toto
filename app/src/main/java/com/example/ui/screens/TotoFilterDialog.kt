@@ -68,6 +68,7 @@ import com.example.engine.FilterPreviewResult
 import com.example.engine.MatrixFilterResult
 import com.example.engine.TotoFilterEngine
 import com.example.model.FilterApplicationMode
+import com.example.model.PredictionOutcome
 import com.example.model.TotoFilterCriteria
 import com.example.model.TotoColumn
 import com.example.model.TotoMatch
@@ -383,12 +384,23 @@ fun TotoFilterDialog(
                                     modifier = Modifier.size(16.dp)
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "Aynı filtrede işaretlenen sayılar VEYA'dır: örneğin 2 ve 3 seçimi, 2 VEYA 3 demektir. Farklı filtreler VE ile birleşir. Esnek modda her seçime ±1 tolerans uygulanır.",
-                                    color = TextSecondary,
-                                    fontSize = 11.5.sp,
-                                    fontWeight = FontWeight.Medium
-                                )
+                                Column {
+                                    Text(
+                                        text = "Aynı filtrede işaretlenen sayılar VEYA'dır: örneğin 2 ve 3 seçimi, 2 VEYA 3 demektir. Farklı filtreler VE ile birleşir. Esnek modda her seçime ±1 tolerans uygulanır.",
+                                        color = TextSecondary,
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                    if (matches.any { it.favoriteOutcome == PredictionOutcome.DRAW }) {
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = "Favori 0 olan maçta 0 sürpriz değildir; 1 ve 2 normal sürpriz sayılır.",
+                                            color = CasinoGold,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
