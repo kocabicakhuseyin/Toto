@@ -253,6 +253,7 @@ fun MainAppContent(incomingNesineUrl: String? = null, onNesineUrlHandled: () -> 
                 AppNavTab.ANALYSIS -> {
                     MatchAnalysisScreen(
                         matches = matches,
+                        bulletin = currentBulletin,
                         onTogglePrediction = { matchId, outcome ->
                             viewModel.togglePrediction(matchId, outcome)
                         },

@@ -66,7 +66,10 @@ class TotoViewModel(
     }
 
     private val _matches = MutableStateFlow<List<TotoMatch>>(
-        createInitialMatches().map(::withSavedFavorite)
+        // Real Android sessions wait for the verified official program.
+        // No stale example fixture may appear as the current bulletin.
+        if (applicationContext == null) createInitialMatches().map(::withSavedFavorite)
+        else emptyList()
     )
     val matches: StateFlow<List<TotoMatch>> = _matches.asStateFlow()
 
@@ -147,7 +150,11 @@ class TotoViewModel(
     init {
         // Initial bulletin load & starter coupon
         refreshBulletin(forceRefresh = false)
-        generateCoupon(FormulaType.GUARANTEE_14, "14 Garanti (N-1) Özel Başlangıç Kuponu")
+        // In production, do not silently create an initial coupon from a
+        // hard-coded fixture before the official bulletin has loaded.
+        if (applicationContext == null) {
+            generateCoupon(FormulaType.GUARANTEE_14, "14 Garanti (N-1) Özel Başlangıç Kuponu")
+        }
 
         // Free API-Football: poll only while the score page is visible.
         // The repository also enforces an independent three-minute throttle.
@@ -220,10 +227,10 @@ class TotoViewModel(
                                 )
                             }
                         }
-                        _bulletinMessage.value = "Haftalık bülten ve oranlar güncellendi!"
+                        _bulletinMessage.value = "Resmî Spor Toto bülteni doğrulandı: ${freshMatches.size} maç."
                     }
                 }.onFailure {
-                    _bulletinMessage.value = "Bülten güncellenemedi, yerel veriler kullanılıyor."
+                    _bulletinMessage.value = "Resmî Spor Toto bülteni alınamadı. İnterneti kontrol edip yeniden deneyin; örnek maç gösterilmiyor."
                 }
             } finally {
                 _isRefreshingBulletin.value = false
@@ -403,6 +410,14 @@ class TotoViewModel(
         precomputedMatrix: com.example.engine.MatrixFilterResult? = null
     ): Coupon {
         _filterCriteria.value = criteria
+        if (criteria.hasSurpriseFilters && _matches.value.any { !it.favoriteKnown }) {
+            _bulletinMessage.value =
+                "Sürpriz filtreleri için önce bültendeki tüm maçların 1/0/2 favorisini seçin."
+            return _currentCoupon.value ?: Coupon(
+                id = "missing_favorites", title = "Favoriler henüz belirlenmedi",
+                formulaType = _selectedFormula.value, columns = emptyList()
+            )
+        }
         val result = precomputedMatrix ?: com.example.engine.TotoFilterEngine.filterSelectedMatrix(
             matches = _matches.value,
             criteria = criteria,

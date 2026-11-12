@@ -11,6 +11,9 @@ import com.example.network.ScoreCardsLiveService
 import com.example.network.SporTotoApiService
 import com.example.network.model.BulletinMatchDto
 import com.example.network.model.WeeklyBulletinResponse
+import com.example.network.model.OfficialGameRound
+import com.example.network.model.OfficialRoundMatch
+import com.example.network.model.MatchProbabilitiesDto
 import com.example.network.model.toDomainTotoMatch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
@@ -22,6 +25,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.text.SimpleDateFormat
 import java.util.Date
+import java.util.Calendar
 import java.util.Locale
 import java.util.TimeZone
 
@@ -261,69 +265,212 @@ class SporTotoBulletinRepositoryImpl(
             }
         }
 
+    private val officialTimezone = TimeZone.getTimeZone("Europe/Istanbul")
+
+    private fun seasonCandidates(): List<String> {
+        val calendar = Calendar.getInstance(officialTimezone)
+        val year = calendar.get(Calendar.YEAR)
+        val startingYear = if (calendar.get(Calendar.MONTH) < Calendar.JULY) year - 1 else year
+        return listOf(
+            "${startingYear}/${startingYear + 1}",
+            "${startingYear - 1}/${startingYear}"
+        )
+    }
+
+    private fun officialTimestamp(text: String?): Long? {
+        if (text.isNullOrBlank()) return null
+        val patterns = listOf(
+            "yyyy-MM-dd'T'HH:mm:ss.SSSXXX",
+            "yyyy-MM-dd'T'HH:mm:ssXXX",
+            "yyyy-MM-dd'T'HH:mm:ss.SSS",
+            "yyyy-MM-dd'T'HH:mm:ss",
+            "yyyy-MM-dd HH:mm:ss"
+        )
+        for (pattern in patterns) {
+            val parser = SimpleDateFormat(pattern, Locale.US).apply {
+                isLenient = false
+                timeZone = officialTimezone
+            }
+            val parsed = runCatching { parser.parse(text.trim())?.time }.getOrNull()
+            if (parsed != null) return parsed
+        }
+        return null
+    }
+
+    private fun formatOfficialDate(raw: String?): String? {
+        val timestamp = officialTimestamp(raw) ?: return null
+        return SimpleDateFormat("dd.MM.yyyy HH:mm", Locale("tr", "TR")).apply {
+            timeZone = officialTimezone
+        }.format(Date(timestamp))
+    }
+
+    private fun officialRoundWeek(name: String?): Int =
+        Regex("""(\d{1,2})\s*\.\s*(?:Oyun Programı|Hafta)""", RegexOption.IGNORE_CASE)
+            .find(name.orEmpty())?.groupValues?.get(1)?.toIntOrNull() ?: 0
+
+    private fun validOfficialMatches(items: List<OfficialRoundMatch>): Boolean {
+        if (items.size != 15) return false
+        val keys = HashSet<String>()
+        return items.all { item ->
+            val fixture = item.match ?: return@all false
+            val home = fixture.homeTeam?.name?.trim().orEmpty()
+            val away = fixture.awayTeam?.name?.trim().orEmpty()
+            val date = formatOfficialDate(fixture.date)
+            home.isNotBlank() && away.isNotBlank() &&
+                !home.equals(away, ignoreCase = true) && date != null &&
+                keys.add("${home.uppercase(Locale.ROOT)}|${away.uppercase(Locale.ROOT)}|$date")
+        }
+    }
+
+    private fun toOfficialBulletin(
+        season: String,
+        round: OfficialGameRound,
+        items: List<OfficialRoundMatch>
+    ): WeeklyBulletinResponse {
+        val matches = items.mapIndexed { index, item ->
+            val match = requireNotNull(item.match)
+            BulletinMatchDto(
+                matchNumber = index + 1,
+                homeTeam = requireNotNull(match.homeTeam?.name).trim(),
+                awayTeam = requireNotNull(match.awayTeam?.name).trim(),
+                matchDate = requireNotNull(formatOfficialDate(match.date)),
+                league = listOfNotNull(match.stage?.name, match.round?.name)
+                    .filter { it.isNotBlank() }.joinToString(" • ").ifBlank { null },
+                status = if (match.fullTimeWin != null || match.noterWin != null)
+                    "FINISHED" else "UPCOMING",
+                // The published program does not provide real 1/0/2 playing
+                // percentages or decimal odds. Do not invent them.
+                liveOdds = null,
+                probabilities = null
+            )
+        }
+        val dates = matches.map { it.matchDate }.sortedBy { m ->
+            val parser = SimpleDateFormat("dd.MM.yyyy HH:mm", Locale("tr", "TR")).apply {
+                timeZone = officialTimezone
+            }
+            runCatching { parser.parse(m)?.time }.getOrNull() ?: Long.MAX_VALUE
+        }
+        val title = round.name?.trim().takeUnless { it.isNullOrEmpty() }
+            ?: items.firstOrNull()?.gameRoundName.orEmpty()
+        val fetched = SimpleDateFormat("dd.MM.yyyy HH:mm", Locale("tr", "TR")).apply {
+            timeZone = officialTimezone
+        }.format(Date())
+        return WeeklyBulletinResponse(
+            weekNumber = officialRoundWeek(title),
+            season = season,
+            bulletinTitle = title,
+            startDate = dates.first().substringBefore(" "),
+            endDate = dates.last().substringBefore(" "),
+            jackpotEstimateTL = 0.0,
+            isActive = matches.any { it.status != "FINISHED" },
+            matches = matches,
+            sourceName = "Spor Toto Teşkilat Başkanlığı",
+            fetchedAt = fetched
+        )
+    }
+
+    private suspend fun fetchOfficialBulletin(requestedWeek: Int? = null): WeeklyBulletinResponse {
+        val now = System.currentTimeMillis()
+        val day = 24L * 60 * 60 * 1000
+        var lastError: Throwable? = null
+
+        for (season in seasonCandidates()) {
+            val rounds = try {
+                val response = apiService.getPublishedRounds(season)
+                val body = response.body()
+                if (!response.isSuccessful || body?.isSucceed != true) {
+                    throw IllegalStateException("Resmî hafta listesi alınamadı (HTTP ${response.code()}).")
+                }
+                body.rounds.orEmpty().filter { (it.id ?: 0) > 0 }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                lastError = error
+                continue
+            }
+
+            val candidates = rounds
+                .distinctBy { it.id }
+                .filter { round ->
+                    if (requestedWeek != null) {
+                        officialRoundWeek(round.name) == requestedWeek
+                    } else {
+                        val close = officialTimestamp(round.roundCloseDate)
+                        close != null && close >= now - 7 * day && close <= now + 30 * day
+                    }
+                }
+                .sortedWith(compareBy<OfficialGameRound> {
+                    val close = officialTimestamp(it.roundCloseDate) ?: Long.MAX_VALUE
+                    kotlin.math.abs(close - now)
+                }.thenByDescending { it.id ?: 0 })
+                .take(8)
+
+            for (round in candidates) {
+                val roundId = round.id ?: continue
+                try {
+                    val response = apiService.getRoundMatches(roundId)
+                    val body = response.body()
+                    if (!response.isSuccessful || body?.isSucceed != true) continue
+                    val matches = body.items.orEmpty()
+                    if (!validOfficialMatches(matches)) continue
+                    val allCompleted = matches.all {
+                        it.match?.fullTimeWin != null || it.match?.noterWin != null
+                    }
+                    if (requestedWeek == null && allCompleted) continue
+                    return toOfficialBulletin(season, round, matches)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    lastError = error
+                }
+            }
+        }
+        throw IllegalStateException(
+            if (requestedWeek == null) {
+                "Resmî Spor Toto servisinde doğrulanmış, güncel 15 maçlık bülten bulunamadı."
+            } else {
+                "Resmî Spor Toto servisinde ${requestedWeek}. haftanın 15 maçlık listesi bulunamadı."
+            },
+            lastError
+        )
+    }
+
     override suspend fun getWeeklyBulletin(forceRefresh: Boolean): Result<WeeklyBulletinResponse> =
         withContext(Dispatchers.IO) {
+            if (!forceRefresh) {
+                _cachedBulletin.value?.let { return@withContext Result.success(it) }
+            }
             try {
-                if (!forceRefresh && _cachedBulletin.value != null) {
-                    return@withContext Result.success(_cachedBulletin.value!!)
-                }
-
-                val response = apiService.getCurrentWeeklyBulletin()
-                if (response.isSuccessful && response.body() != null) {
-                    val bulletin = response.body()!!
-                    _cachedBulletin.value = bulletin
-                    Result.success(bulletin)
-                } else {
-                    // Fallback to offline standard bulletin if server returns an error code
-                    val fallback = NetworkModule.createFallbackBulletin()
-                    _cachedBulletin.value = fallback
-                    Result.success(fallback)
-                }
-            } catch (e: Exception) {
-                // Return fallback on network exception so the app never fails
-                val fallback = _cachedBulletin.value ?: NetworkModule.createFallbackBulletin()
-                _cachedBulletin.value = fallback
-                Result.success(fallback)
+                val bulletin = fetchOfficialBulletin()
+                _cachedBulletin.value = bulletin
+                Result.success(bulletin)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                // Preserve last verified data in memory but never report a
+                // network failure or made-up data as a successful refresh.
+                Result.failure(error)
             }
         }
 
     override suspend fun getBulletinByWeek(weekNumber: Int): Result<WeeklyBulletinResponse> =
         withContext(Dispatchers.IO) {
             try {
-                val response = apiService.getBulletinByWeek(weekNumber)
-                if (response.isSuccessful && response.body() != null) {
-                    Result.success(response.body()!!)
-                } else {
-                    val fallback = NetworkModule.createFallbackBulletin(weekNumber)
-                    Result.success(fallback)
-                }
-            } catch (e: Exception) {
-                Result.success(NetworkModule.createFallbackBulletin(weekNumber))
+                Result.success(fetchOfficialBulletin(weekNumber))
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                Result.failure(error)
             }
         }
 
     override suspend fun refreshLiveOdds(): Result<List<BulletinMatchDto>> =
-        withContext(Dispatchers.IO) {
-            try {
-                val response = apiService.getLiveOdds()
-                if (response.isSuccessful && response.body() != null) {
-                    val updatedMatches = response.body()!!
-                    // Update in-memory cached bulletin with refreshed live odds
-                    _cachedBulletin.value?.let { current ->
-                        _cachedBulletin.value = current.copy(matches = updatedMatches)
-                    }
-                    Result.success(updatedMatches)
-                } else {
-                    Result.success(_cachedBulletin.value?.matches ?: emptyList())
-                }
-            } catch (e: Exception) {
-                Result.success(_cachedBulletin.value?.matches ?: emptyList())
-            }
-        }
+        Result.failure(UnsupportedOperationException(
+            "Resmî Spor Toto maç programı 1/0/2 oynanma yüzdelerini ve canlı oranları yayımlamıyor."
+        ))
 
     override suspend fun getDomainMatches(forceRefresh: Boolean): Result<List<TotoMatch>> {
-        val result = getWeeklyBulletin(forceRefresh)
-        return result.map { bulletin ->
+        return getWeeklyBulletin(forceRefresh).map { bulletin ->
             bulletin.matches.map { it.toDomainTotoMatch() }
         }
     }

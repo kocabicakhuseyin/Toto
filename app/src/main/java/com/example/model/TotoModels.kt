@@ -26,6 +26,20 @@ data class TotoMatch(
     // A manual favorite may be 1, 0 (draw) or 2.
     val favoriteOverride: PredictionOutcome? = null
 ) {
+    // Published Spor Toto programs contain no betting/play percentages.
+    // An absent percentage must never appear to be an automatic home favorite.
+    val hasAutomaticFavoriteData: Boolean
+        get() {
+            val home = probability.home.firstOrNull() ?: return false
+            val draw = probability.draw.firstOrNull() ?: return false
+            val away = probability.away.firstOrNull() ?: return false
+            return home in 0..100 && draw in 0..100 && away in 0..100 &&
+                home + draw + away in 95..105
+        }
+
+    val favoriteKnown: Boolean
+        get() = favoriteOverride != null || hasAutomaticFavoriteData
+
     val automaticFavoriteOutcome: PredictionOutcome
         get() {
             val homePercentage = probability.home.firstOrNull() ?: 0

@@ -50,6 +50,16 @@ data class TotoFilterCriteria(
     val customSurpriseMatches: Set<Int> = emptySet(), // e.g. {9, 10, 12, 13, 14, 15}
     val allowedCustomSurprisesCount: Set<Int> = emptySet() // e.g. {1, 2, 3}
 ) {
+    /** Surprise / reverse-surprise rules require a verified or manually chosen favorite. */
+    val hasSurpriseFilters: Boolean
+        get() = allowedTotalSurprises.isNotEmpty() ||
+                allowedTotalHardSurprises.isNotEmpty() ||
+                allowedSurprises1To9.isNotEmpty() ||
+                allowedHardSurprises1To9.isNotEmpty() ||
+                allowedSurprises10To15.isNotEmpty() ||
+                allowedHardSurprises10To15.isNotEmpty() ||
+                (customSurpriseMatches.isNotEmpty() && allowedCustomSurprisesCount.isNotEmpty())
+
     val isActive: Boolean
         get() = allowedTotalSurprises.isNotEmpty() ||
                 allowedTotalDraws.isNotEmpty() ||

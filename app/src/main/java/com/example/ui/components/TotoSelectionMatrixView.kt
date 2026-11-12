@@ -408,7 +408,8 @@ private fun MatrixFavoriteRow(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = match.favoriteOutcome.label + if (isManual) "*" else "",
+                        text = (if (match.favoriteKnown) match.favoriteOutcome.label else "?") +
+                            if (isManual) "*" else "",
                         color = Color.White,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Black
@@ -419,7 +420,13 @@ private fun MatrixFavoriteRow(
                     onDismissRequest = { expanded = false }
                 ) {
                     DropdownMenuItem(
-                        text = { Text("Otomatik (${match.automaticFavoriteOutcome.label})") },
+                        text = {
+                            Text(
+                                if (match.hasAutomaticFavoriteData)
+                                    "Otomatik (${match.automaticFavoriteOutcome.label})"
+                                else "Otomatik (oran yok)"
+                            )
+                        },
                         onClick = {
                             onChangeFavorite(match.id, null)
                             expanded = false
@@ -494,7 +501,7 @@ private fun MatrixOutcomeRow(
         // 15 Match Cells: Interactive toggle button
         matches.take(15).forEach { match ->
             val isSelected = if (favoriteEditMode) {
-                match.favoriteOutcome == outcome
+                match.favoriteKnown && match.favoriteOutcome == outcome
             } else {
                 match.selections.contains(outcome)
             }
