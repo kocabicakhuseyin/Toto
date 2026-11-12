@@ -1,5 +1,8 @@
 # Toto ↔ Nesine (bilgisayar/sunucu Chrome köprüsü)
 
+**Linux sunucusu için doğrudan kurulum:**
+[linux/README.md](../linux/README.md) ve 01–04 numaralı kurulum betikleri.
+
 Bu küçük servis **kullanıcının kendi bilgisayarında veya kendi sunucusunda**
 çalışır. Toto Android uygulamasından gelen seçilmiş 15 maçlık kolonları
 Nesine'nin resmî [Spor Toto](https://www.nesine.com/sportoto) formundaki
