@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  chooseNesineLiveTarget, expectedChecked, isOfficialProgram,
+  chooseNesineLiveTarget, desiredCheckboxStates, expectedChecked, isOfficialProgram,
   isNesineSite, normalizeColumns, validSessionId,
 } from "../src/columns.mjs";
 
@@ -28,6 +28,16 @@ test("exact radio-like checkbox allocation for four groups", () => {
     assert.equal(perMatch, g < 2 ? 1 : 0);
   }
   assert.equal(checkedCount, 30);
+});
+
+test("bulk desired states contain exactly 180 cells and no double choices", () => {
+  const states = desiredCheckboxStates(normalizeColumns(["1".repeat(15), "X".repeat(15)]));
+  assert.equal(Object.keys(states).length, 180);
+  assert.equal(Object.values(states).filter(Boolean).length, 30);
+  assert.equal(states["m-c-0-0-0"], true);
+  assert.equal(states["m-c-0-0-1"], false);
+  assert.equal(states["m-c-0-1-1"], true);
+  assert.equal(states["m-c-0-2-2"], false);
 });
 
 test("reject redirects or untrusted hostnames", () => {

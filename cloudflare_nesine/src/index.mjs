@@ -11,10 +11,9 @@ import { Buffer } from "node:buffer";
 import { connect } from "@cloudflare/playwright";
 import {
   chooseNesineLiveTarget,
-  expectedChecked,
+  desiredCheckboxStates,
   isOfficialProgram,
   MATCH_COUNT,
-  MAX_COLUMNS,
   NESINE_URL,
   normalizeColumns,
   validSessionId,
@@ -154,36 +153,57 @@ async function fill(env, body) {
   try {
     const result = await withSession(env, sessionId, async (browser) => {
       const page = await programPage(browser);
-      const count = await page.locator('input[id^="m-c-"][type="checkbox"]').count();
-      if (count !== MATCH_COUNT * MAX_COLUMNS * 3) {
+      const wanted = desiredCheckboxStates(columns);
+
+      // Read and click all 180 selections inside one browser round trip.
+      // HTMLElement.click() fires the site's normal checkbox event handlers,
+      // unlike writing input.checked directly. Never touch the wager button.
+      const batch = await page.evaluate(async (expected) => {
+        const selector = 'input[id^="m-c-"][type="checkbox"]';
+        const inputs = document.querySelectorAll(selector);
+        if (inputs.length !== Object.keys(expected).length) {
+          return { layoutOk: false, mismatches: [] };
+        }
+        for (const [id, shouldCheck] of Object.entries(expected)) {
+          const input = document.getElementById(id);
+          if (!(input instanceof HTMLInputElement) || input.type !== "checkbox") {
+            return { layoutOk: false, mismatches: [] };
+          }
+          if (input.checked !== shouldCheck) input.click();
+        }
+        // Give reactive form handlers a moment to update controlled inputs.
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        const mismatches = Object.entries(expected)
+          .filter(([id, shouldCheck]) => document.getElementById(id)?.checked !== shouldCheck)
+          .map(([id]) => id);
+        return { layoutOk: true, mismatches };
+      }, wanted);
+      if (!batch.layoutOk) throw new Error("Nesine seçim alanı değişti.");
+
+      // Rare event-handler mismatches receive Playwright's stronger check action.
+      // Bound retries to prevent a long request from timing out on the phone.
+      if (batch.mismatches.length > 12) {
+        throw new Error("Nesine formu toplu işaretlemeyi kabul etmedi.");
+      }
+      for (const id of batch.mismatches) {
+        await page.locator(`#${id}`).setChecked(wanted[id], { timeout: 5_000 });
+      }
+
+      // Re-read every cell and require an exact 15-choice-per-column matrix.
+      const actual = await page.locator('input[id^="m-c-"][type="checkbox"]')
+        .evaluateAll((elements) => elements.map((input) => [input.id, input.checked]));
+      if (actual.length !== Object.keys(wanted).length) {
         throw new Error("Nesine seçim alanı değişti.");
       }
-
-      // Every A/B/C/D group is ONE exact column. A double choice would
-      // silently widen the filtered matrix and is intentionally forbidden.
-      for (let group = 0; group < MAX_COLUMNS; group++) {
-        for (let match = 0; match < MATCH_COUNT; match++) {
-          for (let outcome = 0; outcome < 3; outcome++) {
-            const checkbox = page.locator(`#m-c-${match}-${group}-${outcome}`);
-            const wanted = expectedChecked(match, group, outcome, columns);
-            if (await checkbox.isChecked() !== wanted) {
-              await checkbox.setChecked(wanted, { timeout: 10_000 });
-            }
-          }
-        }
-      }
-
       let checked = 0;
-      for (let group = 0; group < MAX_COLUMNS; group++) {
-        for (let match = 0; match < MATCH_COUNT; match++) {
-          for (let outcome = 0; outcome < 3; outcome++) {
-            const actual = await page.locator(`#m-c-${match}-${group}-${outcome}`).isChecked();
-            if (actual !== expectedChecked(match, group, outcome, columns)) {
-              throw new Error("Checkbox doğrulaması başarısız.");
-            }
-            if (actual) checked++;
-          }
+      for (const [id, isChecked] of actual) {
+        if (!Object.prototype.hasOwnProperty.call(wanted, id) || wanted[id] !== isChecked) {
+          throw new Error("Checkbox doğrulaması başarısız.");
         }
+        if (isChecked) checked++;
+      }
+      if (checked !== columns.length * MATCH_COUNT) {
+        throw new Error("Kolon seçim sayısı doğrulanamadı.");
       }
       return { checked_outcomes: checked, page_url: page.url() };
     });

@@ -57,3 +57,15 @@ export function expectedChecked(matchIndex, groupIndex, outcomeIndex, columns) {
   const column = columns[groupIndex];
   return column !== undefined && OUTCOMES[column[matchIndex]] === outcomeIndex;
 }
+
+export function desiredCheckboxStates(columns) {
+  const states = {};
+  for (let group = 0; group < MAX_COLUMNS; group++) {
+    for (let match = 0; match < MATCH_COUNT; match++) {
+      for (let outcome = 0; outcome < 3; outcome++) {
+        states[`m-c-${match}-${group}-${outcome}`] = expectedChecked(match, group, outcome, columns);
+      }
+    }
+  }
+  return states;
+}
