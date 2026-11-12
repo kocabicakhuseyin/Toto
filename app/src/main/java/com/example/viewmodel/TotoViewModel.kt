@@ -279,10 +279,18 @@ class TotoViewModel(
     }
 
     fun selectAllFavorites() {
+        val unavailable = _matches.value.filterNot { it.favoriteKnown }
         _matches.update { list ->
             list.map { match ->
-                match.copy(selections = setOf(match.favoriteOutcome))
+                if (match.favoriteKnown) match.copy(selections = setOf(match.favoriteOutcome))
+                else match
             }
+        }
+        if (unavailable.isNotEmpty()) {
+            _bulletinMessage.value =
+                "Otomatik favorisi olmayan maçlar: " +
+                    unavailable.joinToString(", ") { it.matchNumber.toString() } +
+                    ". Bülten üzerinden favorilerini elle belirleyin."
         }
     }
 
@@ -363,6 +371,16 @@ class TotoViewModel(
         customTitle: String? = null,
         cap: Int? = null
     ): Coupon {
+        val needsChoice = _matches.value.size != 15 ||
+            _matches.value.any { it.selections.isEmpty() && !it.favoriteKnown }
+        if (needsChoice) {
+            _bulletinMessage.value =
+                "15 maç için resmî bülteni bekleyin; seçim yapılmamış maçların favorilerini elle belirleyin."
+            return _currentCoupon.value ?: Coupon(
+                id = "missing_match_choices", title = "Maç seçimleri eksik",
+                formulaType = formulaType, columns = emptyList()
+            )
+        }
         val title = customTitle ?: "${formulaType.title} (#${_coupons.value.size + 1})"
         val effectiveCap = cap ?: _targetColumnCap.value
         val generatedCols = FormulaEngine.generateColumns(_matches.value, formulaType, maxColumnsCap = effectiveCap)

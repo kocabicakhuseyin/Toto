@@ -107,6 +107,10 @@ fun TotoFilterDialog(
     }
     var criteria by remember(matches) { mutableStateOf(availability.restrict(initialCriteria)) }
     var showStatsForTotalSurprise by remember { mutableStateOf(false) }
+    val missingFavoriteNumbers = remember(matches) {
+        matches.filterNot { it.favoriteKnown }.map { it.matchNumber }
+    }
+    val surpriseRequiresFavorites = criteria.hasSurpriseFilters && missingFavoriteNumbers.isNotEmpty()
 
     // Exact matrix evaluation runs off the main thread. Changing any filter cancels
     // the previous preview; the accepted result is reused when the user applies it.
@@ -114,6 +118,10 @@ fun TotoFilterDialog(
         initialValue = null,
         criteria, matches, targetColumnCap, sourceColumns
     ) {
+        if (surpriseRequiresFavorites) {
+            value = null
+            return@produceState
+        }
         delay(120)
         val previewJob = currentCoroutineContext()
         value = withContext(Dispatchers.Default) {
@@ -129,7 +137,7 @@ fun TotoFilterDialog(
     val evaluatedResult = matrixResult
     val previewResult: FilterPreviewResult = evaluatedResult?.toPreview()
         ?: FilterPreviewResult(0, 0, 0, 0, 0.0, 0.0)
-    val canCreateCoupon = evaluatedResult != null &&
+    val canCreateCoupon = !surpriseRequiresFavorites && evaluatedResult != null &&
         !evaluatedResult.isTooLarge && evaluatedResult.savedColumnCount > 0
 
     Dialog(
@@ -804,6 +812,18 @@ fun TotoFilterDialog(
                                     )
                                 }
                             }
+                        }
+
+                        if (surpriseRequiresFavorites) {
+                            Text(
+                                text = "Sürpriz / ters sürpriz filtresi için favorisi belirsiz maçlar: " +
+                                    missingFavoriteNumbers.joinToString(", ") +
+                                    ". Önce Bülten ekranından bu maçlara 1, 0 veya 2 favorisi seçin.",
+                                color = NeonAmber,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 12.sp,
+                                lineHeight = 17.sp
+                            )
                         }
 
                         if (evaluatedResult != null) {
