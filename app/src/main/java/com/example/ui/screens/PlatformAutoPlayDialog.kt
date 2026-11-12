@@ -81,7 +81,7 @@ fun PlatformAutoPlayDialog(
     // There is no verified Nesine placement API integration. Never request or
     // retain a Nesine password, fabricate a login, or announce a bet as placed.
     if (platform == BettingPlatform.NESINE) {
-        NesineOfficialLoginDialog(coupon = coupon, onDismiss = onDismiss)
+        NesineChromeBridgeDialog(coupon = coupon, onDismiss = onDismiss)
         return
     }
 
@@ -358,60 +358,6 @@ fun PlatformAutoPlayDialog(
                     Text("Kapat", color = TextMuted)
                 }
             }
-        }
-    )
-}
-
-@Composable
-private fun NesineOfficialLoginDialog(coupon: Coupon, onDismiss: () -> Unit) {
-    val context = LocalContext.current
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = DarkCard,
-        title = {
-            Text("Nesine'de Güvenli Giriş", color = TextPrimary, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-        },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(11.dp)) {
-                Text("${coupon.totalColumns} kolon • Toto'da hazırlanan kupon", color = ElectricCyan, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                Text(
-                    "Kullanıcı adı ve şifrenizi açılacak resmî Nesine uygulamasında veya sitesinde girin. " +
-                        "Toto şifrenizi istemez ve saklamaz.",
-                    color = TextPrimary, fontSize = 13.sp
-                )
-                Text(
-                    "Kupon kolonları panoya kopyalanır. Nesine'de seçimleri kontrol edip işlemi " +
-                        "kendiniz onaylamalısınız. Bu işlem otomatik oynama değildir.",
-                    color = TextSecondary, fontSize = 12.sp
-                )
-                Text(
-                    "Oynadıktan sonra Nesine'nin 'Paylaş' bağlantısını Toto'daki " +
-                        "'Canlı Kupon Havuzu' ekranında doğrulayın. Kuponunuz 'Oynanan Kuponlarım' gridine kaydolur.",
-                    color = ElectricGreen, fontSize = 12.sp
-                )
-                Text(
-                    "Gerçek otomatik oynama için Nesine'nin yetkilendirilmiş entegrasyonu gerekir.",
-                    color = Color(0xFFFBBF24), fontSize = 11.sp
-                )
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    if (PlatformAutomationManager.executeAutoPlay(
-                            context, coupon, BettingPlatform.NESINE,
-                            PlatformCredentials(BettingPlatform.NESINE)
-                        )) onDismiss()
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF59E0B))
-            ) {
-                Icon(Icons.Default.OpenInNew, contentDescription = null, tint = Color.Black)
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("Nesine'yi Aç", color = Color.Black, fontWeight = FontWeight.Bold)
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Vazgeç", color = TextMuted) }
         }
     )
 }

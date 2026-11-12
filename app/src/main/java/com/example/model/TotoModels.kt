@@ -125,7 +125,7 @@ enum class BettingPlatform(
         brandColorHex = 0xFFF59E0B, // Amber Gold
         textColorHex = 0xFF000000,
         packageName = "com.pordiva.nesine.android",
-        webUrl = "https://www.nesine.com/spor-toto",
+        webUrl = "https://www.nesine.com/sportoto",
         domain = "nesine.com",
         iconEmoji = "🟡"
     ),
