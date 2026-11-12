@@ -2,7 +2,7 @@ name: Android Debug APK
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'feature/manuel-mac-favorisi-filtre']
   workflow_dispatch:
 
 permissions:
