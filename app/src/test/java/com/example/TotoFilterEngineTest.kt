@@ -67,8 +67,8 @@ class TotoFilterEngineTest {
         assertEquals(0, analysis.countOf2s)
         assertEquals(15, analysis.maxConsecutive1s)
 
-        // For matches 1..10, HOME is favorite (0 surprises). For matches 11..13, AWAY is favorite, so HOME is surprise (3 surprises). For 14..15 DRAW is favorite, so HOME is surprise (2 surprises).
-        // Total surprises = 5
+        // Matches 11..13 have AWAY favorites (3 hard surprises), while
+        // 14..15 have DRAW favorites (2 normal surprises for their HOME results).
         assertEquals(5, analysis.totalSurprises)
         assertEquals(0, analysis.surprises1To9)
         assertEquals(5, analysis.surprises10To15)
@@ -563,6 +563,135 @@ class TotoFilterEngineTest {
         assertTrue(second.columns.all {
             it.predictions.count { result -> result == PredictionOutcome.DRAW } == 1
         })
+    }
+
+
+    @Test
+    fun testAutomaticFavoriteUsesHighestOneDrawTwoPercentage() {
+        val away = TotoMatch(
+            99, 1, "Ev", "Deplasman", "2026-11-15",
+            MatchProbability(listOf(12), listOf(20), listOf(68))
+        )
+        assertEquals(PredictionOutcome.AWAY, away.automaticFavoriteOutcome)
+        assertEquals(PredictionOutcome.AWAY, away.favoriteOutcome)
+        assertEquals(
+            TotoFilterEngine.OutcomeType.HARD_SURPRISE,
+            TotoFilterEngine.analyzeMatchOutcome(away, PredictionOutcome.HOME)
+        )
+        assertEquals(
+            TotoFilterEngine.OutcomeType.SURPRISE,
+            TotoFilterEngine.analyzeMatchOutcome(away, PredictionOutcome.DRAW)
+        )
+
+        val drawHighest = away.copy(
+            probability = MatchProbability(listOf(30), listOf(50), listOf(20))
+        )
+        assertEquals(PredictionOutcome.DRAW, drawHighest.automaticFavoriteOutcome)
+        assertEquals(PredictionOutcome.DRAW, drawHighest.favoriteOutcome)
+        assertEquals(
+            TotoFilterEngine.OutcomeType.FAVORITE,
+            TotoFilterEngine.analyzeMatchOutcome(drawHighest, PredictionOutcome.DRAW)
+        )
+        assertEquals(
+            TotoFilterEngine.OutcomeType.SURPRISE,
+            TotoFilterEngine.analyzeMatchOutcome(drawHighest, PredictionOutcome.HOME)
+        )
+        assertEquals(
+            TotoFilterEngine.OutcomeType.SURPRISE,
+            TotoFilterEngine.analyzeMatchOutcome(drawHighest, PredictionOutcome.AWAY)
+        )
+        val manualDraw = away.copy(favoriteOverride = PredictionOutcome.DRAW)
+        assertEquals(PredictionOutcome.DRAW, manualDraw.favoriteOutcome)
+        assertEquals(
+            TotoFilterEngine.OutcomeType.SURPRISE,
+            TotoFilterEngine.analyzeMatchOutcome(manualDraw, PredictionOutcome.HOME)
+        )
+
+        val manual = away.copy(favoriteOverride = PredictionOutcome.HOME)
+        assertEquals(PredictionOutcome.HOME, manual.favoriteOutcome)
+        assertEquals(
+            TotoFilterEngine.OutcomeType.FAVORITE,
+            TotoFilterEngine.analyzeMatchOutcome(manual, PredictionOutcome.HOME)
+        )
+        assertEquals(PredictionOutcome.AWAY, manual.copy(favoriteOverride = null).favoriteOutcome)
+    }
+
+    @Test
+    fun testManualFavoriteCanBeSetAndResetOnViewModel() {
+        val vm = com.example.viewmodel.TotoViewModel()
+        val before = vm.matches.value.first { it.matchNumber == 13 }
+        assertEquals(PredictionOutcome.HOME, before.favoriteOutcome)
+
+        vm.setMatchFavorite(13, PredictionOutcome.AWAY)
+        val manual = vm.matches.value.first { it.matchNumber == 13 }
+        assertEquals(PredictionOutcome.AWAY, manual.favoriteOutcome)
+        assertEquals(PredictionOutcome.AWAY, manual.favoriteOverride)
+
+        vm.setMatchFavorite(13, PredictionOutcome.DRAW)
+        assertEquals(PredictionOutcome.DRAW, vm.matches.value.first { it.matchNumber == 13 }.favoriteOutcome)
+        vm.selectAllFavorites()
+        assertEquals(
+            setOf(PredictionOutcome.DRAW),
+            vm.matches.value.first { it.matchNumber == 13 }.selections
+        )
+
+        vm.setMatchFavorite(13, null)
+        val reset = vm.matches.value.first { it.matchNumber == 13 }
+        assertEquals(null, reset.favoriteOverride)
+        assertEquals(reset.automaticFavoriteOutcome, reset.favoriteOutcome)
+    }
+
+    @Test
+    fun testReference1536MatrixFavoriteAtMatch13Changes350To120() {
+        val fixedReference = (1..15).map { number ->
+            val isAwayFavorite = number == 3 || number == 13
+            val probabilities = if (isAwayFavorite) {
+                MatchProbability(listOf(12), listOf(20), listOf(68))
+            } else {
+                MatchProbability(listOf(70), listOf(20), listOf(10))
+            }
+            val picks = when (number) {
+                in 1..9 -> setOf(PredictionOutcome.HOME, PredictionOutcome.DRAW)
+                10 -> setOf(PredictionOutcome.HOME, PredictionOutcome.DRAW, PredictionOutcome.AWAY)
+                else -> setOf(PredictionOutcome.HOME)
+            }
+            TotoMatch(
+                id = number, matchNumber = number,
+                homeTeam = "Home$number", awayTeam = "Away$number",
+                matchDate = "2026-11-15",
+                probability = probabilities, selections = picks
+            )
+        }
+        val strictFilters = TotoFilterCriteria(
+            applicationMode = FilterApplicationMode.PROBABILITY_STRICT,
+            allowedTotalSurprises = setOf(4, 5),
+            maxConsecutive1s = 3,
+            maxConsecutiveDraws = 3
+        )
+
+        val correct = TotoFilterEngine.filterSelectedMatrix(
+            fixedReference,
+            strictFilters,
+            maxColumnsCap = com.example.engine.FormulaEngine.UNLIMITED_COLUMNS_CAP
+        )
+        assertEquals(1536, correct.initialColumnCount)
+        assertEquals(120, correct.matchingColumnCount)
+        assertEquals(120, correct.savedColumnCount)
+
+        // Match 13 is a banko 1 while the actual favorite is 2.
+        // Incorrectly treating it as favorite 1 loses a mandatory surprise,
+        // precisely reproducing the old 350-column discrepancy.
+        val missingSurprise = fixedReference.map { match ->
+            if (match.matchNumber == 13) match.copy(favoriteOverride = PredictionOutcome.HOME)
+            else match
+        }
+        val incorrect = TotoFilterEngine.filterSelectedMatrix(
+            missingSurprise,
+            strictFilters,
+            maxColumnsCap = com.example.engine.FormulaEngine.UNLIMITED_COLUMNS_CAP
+        )
+        assertEquals(1536, incorrect.initialColumnCount)
+        assertEquals(350, incorrect.matchingColumnCount)
     }
 
 }

@@ -21,8 +21,42 @@ data class TotoMatch(
     val probability: MatchProbability,
     val selections: Set<PredictionOutcome> = emptySet(),
     val isBanko: Boolean = false,
-    val isFavorited: Boolean = false
-)
+    val isFavorited: Boolean = false,
+    // Null = automatically choose the outcome with the highest available 1/0/2 percentage.
+    // A manual favorite may be 1, 0 (draw) or 2.
+    val favoriteOverride: PredictionOutcome? = null
+) {
+    // Published Spor Toto programs contain no betting/play percentages.
+    // An absent percentage must never appear to be an automatic home favorite.
+    val hasAutomaticFavoriteData: Boolean
+        get() {
+            val home = probability.home.firstOrNull() ?: return false
+            val draw = probability.draw.firstOrNull() ?: return false
+            val away = probability.away.firstOrNull() ?: return false
+            return home in 0..100 && draw in 0..100 && away in 0..100 &&
+                home + draw + away in 95..105
+        }
+
+    val favoriteKnown: Boolean
+        get() = favoriteOverride != null || hasAutomaticFavoriteData
+
+    val automaticFavoriteOutcome: PredictionOutcome
+        get() {
+            val homePercentage = probability.home.firstOrNull() ?: 0
+            val drawPercentage = probability.draw.firstOrNull() ?: 0
+            val awayPercentage = probability.away.firstOrNull() ?: 0
+            return when {
+                homePercentage >= drawPercentage && homePercentage >= awayPercentage ->
+                    PredictionOutcome.HOME
+                drawPercentage >= homePercentage && drawPercentage >= awayPercentage ->
+                    PredictionOutcome.DRAW
+                else -> PredictionOutcome.AWAY
+            }
+        }
+
+    val favoriteOutcome: PredictionOutcome
+        get() = favoriteOverride ?: automaticFavoriteOutcome
+}
 
 enum class MatchStatus(val label: String, val badgeColorHex: Long) {
     UPCOMING("Başlamadı", 0xFF64748B),

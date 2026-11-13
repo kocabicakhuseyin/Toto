@@ -38,10 +38,39 @@ import com.example.model.MatchLiveScore
 
 class TotoViewModel(
     private val bulletinRepository: SporTotoBulletinRepository = SporTotoBulletinRepositoryImpl(),
-    private val walletRepository: WalletRepository? = null
+    private val walletRepository: WalletRepository? = null,
+    applicationContext: Context? = null
 ) : ViewModel() {
 
-    private val _matches = MutableStateFlow<List<TotoMatch>>(createInitialMatches())
+    private val favoritePreferences = applicationContext?.applicationContext
+        ?.getSharedPreferences("toto_manual_match_favorites", Context.MODE_PRIVATE)
+
+    // Match numbers repeat every week. A saved manual favorite belongs only to
+    // this particular fixture, never to the next week's match at that position.
+    private fun fixtureKey(match: TotoMatch): String = buildString {
+        append(match.matchDate.trim())
+        append('|')
+        append(match.homeTeam.trim().uppercase(Locale.ROOT))
+        append('|')
+        append(match.awayTeam.trim().uppercase(Locale.ROOT))
+    }
+
+    private fun withSavedFavorite(match: TotoMatch): TotoMatch {
+        val override = when (favoritePreferences?.getString(fixtureKey(match), null)) {
+            PredictionOutcome.HOME.code -> PredictionOutcome.HOME
+            PredictionOutcome.DRAW.code -> PredictionOutcome.DRAW
+            PredictionOutcome.AWAY.code -> PredictionOutcome.AWAY
+            else -> null
+        }
+        return match.copy(favoriteOverride = override)
+    }
+
+    private val _matches = MutableStateFlow<List<TotoMatch>>(
+        // Real Android sessions wait for the verified official program.
+        // No stale example fixture may appear as the current bulletin.
+        if (applicationContext == null) createInitialMatches().map(::withSavedFavorite)
+        else emptyList()
+    )
     val matches: StateFlow<List<TotoMatch>> = _matches.asStateFlow()
 
     val currentBulletin: StateFlow<WeeklyBulletinResponse?> = bulletinRepository.cachedBulletin
@@ -121,7 +150,11 @@ class TotoViewModel(
     init {
         // Initial bulletin load & starter coupon
         refreshBulletin(forceRefresh = false)
-        generateCoupon(FormulaType.GUARANTEE_14, "14 Garanti (N-1) Özel Başlangıç Kuponu")
+        // In production, do not silently create an initial coupon from a
+        // hard-coded fixture before the official bulletin has loaded.
+        if (applicationContext == null) {
+            generateCoupon(FormulaType.GUARANTEE_14, "14 Garanti (N-1) Özel Başlangıç Kuponu")
+        }
 
         // Free API-Football: poll only while the score page is visible.
         // The repository also enforces an independent three-minute throttle.
@@ -180,11 +213,24 @@ class TotoViewModel(
                 val result = bulletinRepository.getDomainMatches(forceRefresh)
                 result.onSuccess { freshMatches ->
                     if (freshMatches.isNotEmpty()) {
-                        _matches.value = freshMatches
-                        _bulletinMessage.value = "Haftalık bülten ve canlı oranlar güncellendi!"
+                        val previous = _matches.value.associateBy(::fixtureKey)
+                        _matches.value = freshMatches.map { fresh ->
+                            val current = previous[fixtureKey(fresh)]
+                            if (current == null) {
+                                withSavedFavorite(fresh)
+                            } else {
+                                // Keep the current week's edits after odds refresh.
+                                fresh.copy(
+                                    selections = current.selections,
+                                    isBanko = current.isBanko,
+                                    favoriteOverride = current.favoriteOverride
+                                )
+                            }
+                        }
+                        _bulletinMessage.value = "Resmî Spor Toto bülteni doğrulandı: ${freshMatches.size} maç."
                     }
                 }.onFailure {
-                    _bulletinMessage.value = "Bülten güncellenemedi, yerel veriler kullanılıyor."
+                    _bulletinMessage.value = "Resmî Spor Toto bülteni alınamadı. İnterneti kontrol edip yeniden deneyin; örnek maç gösterilmiyor."
                 }
             } finally {
                 _isRefreshingBulletin.value = false
@@ -216,19 +262,35 @@ class TotoViewModel(
         }
     }
 
+    /** A null selection restores the highest-percentage side (automatic mode). */
+    fun setMatchFavorite(matchId: Int, selection: PredictionOutcome?) {
+        val match = _matches.value.firstOrNull { it.id == matchId } ?: return
+        val key = fixtureKey(match)
+        favoritePreferences?.edit()?.apply {
+            if (selection == null) remove(key)
+            else putString(key, selection.code)
+            apply()
+        }
+        _matches.update { current ->
+            current.map { item ->
+                if (item.id == matchId) item.copy(favoriteOverride = selection) else item
+            }
+        }
+    }
+
     fun selectAllFavorites() {
+        val unavailable = _matches.value.filterNot { it.favoriteKnown }
         _matches.update { list ->
             list.map { match ->
-                val h = match.probability.home.firstOrNull() ?: 50
-                val d = match.probability.draw.firstOrNull() ?: 25
-                val a = match.probability.away.firstOrNull() ?: 25
-                val best = when {
-                    h >= d && h >= a -> PredictionOutcome.HOME
-                    d >= h && d >= a -> PredictionOutcome.DRAW
-                    else -> PredictionOutcome.AWAY
-                }
-                match.copy(selections = setOf(best))
+                if (match.favoriteKnown) match.copy(selections = setOf(match.favoriteOutcome))
+                else match
             }
+        }
+        if (unavailable.isNotEmpty()) {
+            _bulletinMessage.value =
+                "Otomatik favorisi olmayan maçlar: " +
+                    unavailable.joinToString(", ") { it.matchNumber.toString() } +
+                    ". Bülten üzerinden favorilerini elle belirleyin."
         }
     }
 
@@ -261,15 +323,7 @@ class TotoViewModel(
                     match.copy(selections = set)
                 } else {
                     if (match.selections.isEmpty()) {
-                        val h = match.probability.home.firstOrNull() ?: 50
-                        val d = match.probability.draw.firstOrNull() ?: 25
-                        val a = match.probability.away.firstOrNull() ?: 25
-                        val best = when {
-                            h >= d && h >= a -> PredictionOutcome.HOME
-                            d >= h && d >= a -> PredictionOutcome.DRAW
-                            else -> PredictionOutcome.AWAY
-                        }
-                        match.copy(selections = setOf(best))
+                        match.copy(selections = setOf(match.favoriteOutcome))
                     } else match
                 }
             }
@@ -281,25 +335,24 @@ class TotoViewModel(
         _matches.update { list ->
             list.mapIndexed { idx, match ->
                 if (idx in 0..8) {
-                    val h = match.probability.home.firstOrNull() ?: 50
-                    val a = match.probability.away.firstOrNull() ?: 25
-                    val set = if (h >= a) {
-                        setOf(PredictionOutcome.HOME, PredictionOutcome.DRAW)
-                    } else {
-                        setOf(PredictionOutcome.DRAW, PredictionOutcome.AWAY)
+                    val set = when (match.favoriteOutcome) {
+                        PredictionOutcome.HOME ->
+                            setOf(PredictionOutcome.HOME, PredictionOutcome.DRAW)
+                        PredictionOutcome.AWAY ->
+                            setOf(PredictionOutcome.DRAW, PredictionOutcome.AWAY)
+                        PredictionOutcome.DRAW -> {
+                            // Include the favorite 0 and whichever team has
+                            // the higher percentage in this quick double.
+                            val home = match.probability.home.firstOrNull() ?: 0
+                            val away = match.probability.away.firstOrNull() ?: 0
+                            if (home >= away) setOf(PredictionOutcome.HOME, PredictionOutcome.DRAW)
+                            else setOf(PredictionOutcome.DRAW, PredictionOutcome.AWAY)
+                        }
                     }
                     match.copy(selections = set)
                 } else {
                     if (match.selections.isEmpty()) {
-                        val h = match.probability.home.firstOrNull() ?: 50
-                        val d = match.probability.draw.firstOrNull() ?: 25
-                        val a = match.probability.away.firstOrNull() ?: 25
-                        val best = when {
-                            h >= d && h >= a -> PredictionOutcome.HOME
-                            d >= h && d >= a -> PredictionOutcome.DRAW
-                            else -> PredictionOutcome.AWAY
-                        }
-                        match.copy(selections = setOf(best))
+                        match.copy(selections = setOf(match.favoriteOutcome))
                     } else match
                 }
             }
@@ -318,6 +371,16 @@ class TotoViewModel(
         customTitle: String? = null,
         cap: Int? = null
     ): Coupon {
+        val needsChoice = _matches.value.size != 15 ||
+            _matches.value.any { it.selections.isEmpty() && !it.favoriteKnown }
+        if (needsChoice) {
+            _bulletinMessage.value =
+                "15 maç için resmî bülteni bekleyin; seçim yapılmamış maçların favorilerini elle belirleyin."
+            return _currentCoupon.value ?: Coupon(
+                id = "missing_match_choices", title = "Maç seçimleri eksik",
+                formulaType = formulaType, columns = emptyList()
+            )
+        }
         val title = customTitle ?: "${formulaType.title} (#${_coupons.value.size + 1})"
         val effectiveCap = cap ?: _targetColumnCap.value
         val generatedCols = FormulaEngine.generateColumns(_matches.value, formulaType, maxColumnsCap = effectiveCap)
@@ -365,6 +428,14 @@ class TotoViewModel(
         precomputedMatrix: com.example.engine.MatrixFilterResult? = null
     ): Coupon {
         _filterCriteria.value = criteria
+        if (criteria.hasSurpriseFilters && _matches.value.any { !it.favoriteKnown }) {
+            _bulletinMessage.value =
+                "Sürpriz filtreleri için önce bültendeki tüm maçların 1/0/2 favorisini seçin."
+            return _currentCoupon.value ?: Coupon(
+                id = "missing_favorites", title = "Favoriler henüz belirlenmedi",
+                formulaType = _selectedFormula.value, columns = emptyList()
+            )
+        }
         val result = precomputedMatrix ?: com.example.engine.TotoFilterEngine.filterSelectedMatrix(
             matches = _matches.value,
             criteria = criteria,

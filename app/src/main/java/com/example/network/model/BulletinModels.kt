@@ -25,7 +25,10 @@ data class WeeklyBulletinResponse(
     @Json(name = "is_active")
     val isActive: Boolean = true,
     @Json(name = "matches")
-    val matches: List<BulletinMatchDto>
+    val matches: List<BulletinMatchDto>,
+    /** Provenance and the time this program was fetched from the official host. */
+    val sourceName: String = "Spor Toto Teşkilat Başkanlığı",
+    val fetchedAt: String = ""
 )
 
 /**
@@ -48,9 +51,9 @@ data class BulletinMatchDto(
     @Json(name = "status")
     val status: String? = "UPCOMING", // UPCOMING, LIVE, FINISHED
     @Json(name = "live_odds")
-    val liveOdds: LiveBettingOddsDto,
+    val liveOdds: LiveBettingOddsDto? = null,
     @Json(name = "probabilities")
-    val probabilities: MatchProbabilitiesDto
+    val probabilities: MatchProbabilitiesDto? = null
 )
 
 /**
@@ -97,10 +100,54 @@ fun BulletinMatchDto.toDomainTotoMatch(): TotoMatch {
         homeTeam = homeTeam.uppercase().trim(),
         awayTeam = awayTeam.uppercase().trim(),
         matchDate = matchDate,
+        // The official program supplies fixtures, not 1/0/2 playing percentages.
+        // Empty lists mean "unavailable", never a fabricated 50/25/25 estimate.
         probability = MatchProbability(
-            home = listOf(probabilities.homeProbability, probabilities.homeProbability, probabilities.homeProbability, probabilities.homeProbability),
-            draw = listOf(probabilities.drawProbability, probabilities.drawProbability, probabilities.drawProbability, probabilities.drawProbability),
-            away = listOf(probabilities.awayProbability, probabilities.awayProbability, probabilities.awayProbability, probabilities.awayProbability)
+            home = probabilities?.let { List(4) { _ -> it.homeProbability } } ?: emptyList(),
+            draw = probabilities?.let { List(4) { _ -> it.drawProbability } } ?: emptyList(),
+            away = probabilities?.let { List(4) { _ -> it.awayProbability } } ?: emptyList()
         )
     )
 }
+
+/** The official webapi.sportoto.gov.tr response, not a third-party odds feed. */
+@JsonClass(generateAdapter = true)
+data class OfficialGameRoundsResponse(
+    @Json(name = "isSucceed") val isSucceed: Boolean? = null,
+    @Json(name = "object") val rounds: List<OfficialGameRound>? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class OfficialGameRound(
+    @Json(name = "id") val id: Int? = null,
+    @Json(name = "name") val name: String? = null,
+    @Json(name = "roundCloseDate") val roundCloseDate: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class OfficialGameMatchResponse(
+    @Json(name = "isSucceed") val isSucceed: Boolean? = null,
+    @Json(name = "object") val items: List<OfficialRoundMatch>? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class OfficialRoundMatch(
+    @Json(name = "gameRoundName") val gameRoundName: String? = null,
+    @Json(name = "match") val match: OfficialFixture? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class OfficialFixture(
+    @Json(name = "date") val date: String? = null,
+    @Json(name = "homeTeam") val homeTeam: OfficialNamedTeam? = null,
+    @Json(name = "awayTeam") val awayTeam: OfficialNamedTeam? = null,
+    @Json(name = "stage") val stage: OfficialNamedTeam? = null,
+    @Json(name = "round") val round: OfficialNamedTeam? = null,
+    @Json(name = "fullTimeWin") val fullTimeWin: Int? = null,
+    @Json(name = "noterWin") val noterWin: Int? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class OfficialNamedTeam(
+    @Json(name = "name") val name: String? = null
+)

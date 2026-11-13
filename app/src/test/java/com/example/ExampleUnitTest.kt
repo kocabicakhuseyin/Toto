@@ -1,6 +1,7 @@
 package com.example
 
 import com.example.engine.FormulaEngine
+import com.example.network.model.toDomainTotoMatch
 import com.example.engine.NesineIntegrationManager
 import com.example.engine.PlatformAutomationManager
 import com.example.model.BettingPlatform
@@ -115,54 +116,70 @@ class ExampleUnitTest {
     }
 
     @Test
-    fun testWeeklyBulletinDataModelAndRepository() = kotlinx.coroutines.runBlocking {
-        val repo = com.example.repository.SporTotoBulletinRepositoryImpl()
-        val result = repo.getWeeklyBulletin(forceRefresh = true)
+    fun testWeeklyBulletinDataModelWithoutFabricatedOdds() {
+        val bulletin = com.example.network.model.WeeklyBulletinResponse(
+            weekNumber = 15,
+            season = "2026/2027",
+            bulletinTitle = "15. Oyun Programı",
+            startDate = "13.11.2026",
+            endDate = "16.11.2026",
+            jackpotEstimateTL = 0.0,
+            matches = (1..15).map { index ->
+                com.example.network.model.BulletinMatchDto(
+                    matchNumber = index,
+                    homeTeam = if (index == 1) "Fransa" else "Ev " + index,
+                    awayTeam = if (index == 1) "Türkiye" else "Dep " + index,
+                    matchDate = "15.11.2026 22:45"
+                )
+            }
+        )
 
-        assertTrue(result.isSuccess)
-        val bulletin = result.getOrNull()
-        assertNotNull(bulletin)
-        assertEquals(38, bulletin!!.weekNumber)
+        assertEquals(15, bulletin.weekNumber)
         assertEquals(15, bulletin.matches.size)
-
-        // Verify match teams, dates, and live odds
-        val match1 = bulletin.matches[0]
+        val match1 = bulletin.matches.first()
         assertEquals(1, match1.matchNumber)
-        assertEquals("FRANSA", match1.homeTeam)
-        assertEquals("TÜRKİYE", match1.awayTeam)
-        assertEquals("15.11.2026 22:45", match1.matchDate)
+        assertEquals("Fransa", match1.homeTeam)
+        assertEquals("Türkiye", match1.awayTeam)
+        assertTrue(match1.liveOdds == null)
+        assertTrue(match1.probabilities == null)
 
-        // Live odds checks
-        assertTrue(match1.liveOdds.homeWinOdd > 1.0)
-        assertTrue(match1.liveOdds.drawOdd > 1.0)
-        assertTrue(match1.liveOdds.awayWinOdd > 1.0)
-        assertNotNull(match1.liveOdds.doubleChance1X)
-
-        // Verify domain mapping
-        val domainMatches = repo.getDomainMatches().getOrNull()
-        assertNotNull(domainMatches)
-        assertEquals(15, domainMatches!!.size)
-        assertEquals("FRANSA", domainMatches[0].homeTeam)
-        assertEquals("TÜRKİYE", domainMatches[0].awayTeam)
+        val domain = match1.toDomainTotoMatch()
+        assertEquals("FRANSA", domain.homeTeam)
+        assertTrue(domain.probability.home.isEmpty())
+        assertTrue(domain.probability.draw.isEmpty())
+        assertTrue(domain.probability.away.isEmpty())
     }
 
     @Test
     fun testWeeklyBulletinMoshiJsonSerialization() {
-        val original = com.example.network.NetworkModule.createFallbackBulletin(39)
+        val original = com.example.network.model.WeeklyBulletinResponse(
+            weekNumber = 15,
+            season = "2026/2027",
+            bulletinTitle = "15. Oyun Programı",
+            startDate = "13.11.2026",
+            endDate = "16.11.2026",
+            jackpotEstimateTL = 0.0,
+            matches = listOf(
+                com.example.network.model.BulletinMatchDto(
+                    matchNumber = 1,
+                    homeTeam = "Fransa",
+                    awayTeam = "Türkiye",
+                    matchDate = "15.11.2026 22:45"
+                )
+            )
+        )
         val moshi = com.example.network.NetworkModule.moshi
         val adapter = moshi.adapter(com.example.network.model.WeeklyBulletinResponse::class.java)
-
         val json = adapter.toJson(original)
-        assertNotNull(json)
-        assertTrue(json.contains("\"week_number\":39"))
-        assertTrue(json.contains("live_odds"))
 
+        assertTrue(json.contains("\"week_number\":15"))
+        assertTrue(json.contains("\"matches\""))
         val deserialized = adapter.fromJson(json)
         assertNotNull(deserialized)
-        assertEquals(39, deserialized!!.weekNumber)
-        assertEquals(15, deserialized.matches.size)
-        assertEquals("FRANSA", deserialized.matches[0].homeTeam)
-        assertEquals(1.32, deserialized.matches[0].liveOdds.homeWinOdd, 0.001)
+        assertEquals(15, deserialized!!.weekNumber)
+        assertEquals(1, deserialized.matches.size)
+        assertEquals("Fransa", deserialized.matches[0].homeTeam)
+        assertTrue(deserialized.matches[0].liveOdds == null)
     }
 
     @Test

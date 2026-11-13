@@ -125,16 +125,7 @@ object TotoFilterEngine {
     /** Identical empty-selection fallback to full-matrix generation. */
     private fun optionsForMatch(match: TotoMatch): List<PredictionOutcome> {
         if (match.selections.isNotEmpty()) return match.selections.sortedBy { it.ordinal }
-        val h = match.probability.home.firstOrNull() ?: 33
-        val d = match.probability.draw.firstOrNull() ?: 33
-        val a = match.probability.away.firstOrNull() ?: 33
-        return listOf(
-            when {
-                h >= d && h >= a -> PredictionOutcome.HOME
-                d >= h && d >= a -> PredictionOutcome.DRAW
-                else -> PredictionOutcome.AWAY
-            }
-        )
+        return listOf(match.favoriteOutcome)
     }
 
     /** Computes attainable number buttons from current 1/X/2 selections. */
@@ -247,28 +238,15 @@ object TotoFilterEngine {
      * - hard surprise (ters sürpriz)
      */
     fun analyzeMatchOutcome(match: TotoMatch, outcome: PredictionOutcome): OutcomeType {
-        val h = match.probability.home.firstOrNull() ?: 33
-        val d = match.probability.draw.firstOrNull() ?: 33
-        val a = match.probability.away.firstOrNull() ?: 33
+        val favorite = match.favoriteOutcome
+        if (outcome == favorite) return OutcomeType.FAVORITE
 
-        val favorite = when {
-            h >= d && h >= a -> PredictionOutcome.HOME
-            d >= h && d >= a -> PredictionOutcome.DRAW
-            else -> PredictionOutcome.AWAY
-        }
-
-        if (outcome == favorite) {
-            return OutcomeType.FAVORITE
-        }
-
-        // It is a surprise
-        val isHardSurprise = when (favorite) {
-            PredictionOutcome.HOME -> outcome == PredictionOutcome.AWAY
-            PredictionOutcome.AWAY -> outcome == PredictionOutcome.HOME
-            PredictionOutcome.DRAW -> (outcome == PredictionOutcome.AWAY && a < h) || (outcome == PredictionOutcome.HOME && h < a)
-        }
-
-        return if (isHardSurprise) OutcomeType.HARD_SURPRISE else OutcomeType.SURPRISE
+        // When 0 is the favorite, 1 or 2 is a normal surprise, not a
+        // reverse 1-vs-2 upset. With a team favorite, the opposite team is
+        // a hard surprise; a non-favorite draw is a normal surprise.
+        return if (outcome == PredictionOutcome.DRAW ||
+            favorite == PredictionOutcome.DRAW
+        ) OutcomeType.SURPRISE else OutcomeType.HARD_SURPRISE
     }
 
     enum class OutcomeType {

@@ -110,7 +110,8 @@ fun MainAppContent(incomingNesineUrl: String? = null, onNesineUrlHandled: () -> 
                     bulletinRepository = SporTotoBulletinRepositoryImpl(
                         applicationContext = context.applicationContext
                     ),
-                    walletRepository = walletRepository
+                    walletRepository = walletRepository,
+                    applicationContext = context.applicationContext
                 ) as T
             }
         }
@@ -252,8 +253,12 @@ fun MainAppContent(incomingNesineUrl: String? = null, onNesineUrlHandled: () -> 
                 AppNavTab.ANALYSIS -> {
                     MatchAnalysisScreen(
                         matches = matches,
+                        bulletin = currentBulletin,
                         onTogglePrediction = { matchId, outcome ->
                             viewModel.togglePrediction(matchId, outcome)
+                        },
+                        onSetMatchFavorite = { matchId, favorite ->
+                            viewModel.setMatchFavorite(matchId, favorite)
                         },
                         onSelectAllFavorites = { viewModel.selectAllFavorites() },
                         onApplyQuickDoubles = { viewModel.applyQuickDoubles() },

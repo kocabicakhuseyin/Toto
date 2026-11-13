@@ -1,36 +1,23 @@
 package com.example.network
 
-import com.example.network.model.BulletinMatchDto
-import com.example.network.model.WeeklyBulletinResponse
+import com.example.network.model.OfficialGameMatchResponse
+import com.example.network.model.OfficialGameRoundsResponse
 import retrofit2.Response
 import retrofit2.http.GET
-import retrofit2.http.Path
 import retrofit2.http.Query
 
-/**
- * Retrofit service definition for fetching weekly Spor Toto bulletin and live odds from an external sports API.
- */
+/** Public program API used by the official Spor Toto Teşkilat website. */
 interface SporTotoApiService {
+    /** Published programs within a season, e.g. year=2026/2027. */
+    @GET("api/GameRound")
+    suspend fun getPublishedRounds(
+        @Query("year") season: String,
+        @Query("isPublished") published: Boolean = true
+    ): Response<OfficialGameRoundsResponse>
 
-    /**
-     * Fetches the current active weekly Spor Toto bulletin with 15 matches and odds.
-     */
-    @GET("api/v1/sportoto/bulletin/current")
-    suspend fun getCurrentWeeklyBulletin(): Response<WeeklyBulletinResponse>
-
-    /**
-     * Fetches a specific weekly Spor Toto bulletin by week number (e.g. week 38).
-     */
-    @GET("api/v1/sportoto/bulletin/week/{weekNumber}")
-    suspend fun getBulletinByWeek(
-        @Path("weekNumber") weekNumber: Int
-    ): Response<WeeklyBulletinResponse>
-
-    /**
-     * Fetches updated real-time live betting odds for current bulletin matches.
-     */
-    @GET("api/v1/sportoto/odds/live")
-    suspend fun getLiveOdds(
-        @Query("week") weekNumber: Int? = null
-    ): Response<List<BulletinMatchDto>>
+    /** Match order is the official coupon's 1–15 order. */
+    @GET("api/GameMatch/GetGameMatches/")
+    suspend fun getRoundMatches(
+        @Query("gameRoundId") roundId: Int
+    ): Response<OfficialGameMatchResponse>
 }

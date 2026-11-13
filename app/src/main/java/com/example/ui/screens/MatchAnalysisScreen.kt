@@ -63,6 +63,7 @@ import androidx.compose.ui.unit.sp
 import com.example.model.FilterProfileType
 import com.example.model.PredictionOutcome
 import com.example.model.TotoMatch
+import com.example.network.model.WeeklyBulletinResponse
 import com.example.ui.components.TotoSelectionMatrixView
 import com.example.ui.theme.CasinoGold
 import com.example.ui.theme.CasinoGoldLight
@@ -85,7 +86,9 @@ import androidx.compose.material.icons.filled.Notifications
 @Composable
 fun MatchAnalysisScreen(
     matches: List<TotoMatch>,
+    bulletin: WeeklyBulletinResponse? = null,
     onTogglePrediction: (Int, PredictionOutcome) -> Unit,
+    onSetMatchFavorite: (Int, PredictionOutcome?) -> Unit = { _, _ -> },
     onSelectAllFavorites: () -> Unit,
     onApplyQuickDoubles: () -> Unit,
     onApplyQuickDoubles10To15: () -> Unit = {},
@@ -167,6 +170,37 @@ fun MatchAnalysisScreen(
             }
         }
 
+        if (bulletin == null) {
+            Text(
+                text = "⚠ Resmî Spor Toto bülteni henüz alınamadı. Bülteni Yenile'ye dokunun.",
+                color = NeonAmber,
+                fontWeight = FontWeight.Bold,
+                fontSize = 12.sp,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp)
+            )
+        } else {
+            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp)) {
+                Text(
+                    text = "✓ Kaynak: ${bulletin.sourceName} • ${bulletin.bulletinTitle}",
+                    color = ElectricGreen,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "15 maç • Güncellendi: ${bulletin.fetchedAt}",
+                    color = TextSecondary,
+                    fontSize = 10.sp
+                )
+                if (matches.any { !it.hasAutomaticFavoriteData }) {
+                    Text(
+                        text = "Resmî maç listesi oynanma yüzdesi içermez. Sürpriz filtreleri için favoriyi 1/0/2 olarak elle belirleyin.",
+                        color = NeonAmber,
+                        fontSize = 10.sp
+                    )
+                }
+            }
+        }
+
         if (showAdvancedTools) {
             AdvancedBulletinToolsDialog(
                 targetColumnCap = targetColumnCap,
@@ -192,7 +226,8 @@ fun MatchAnalysisScreen(
             item {
                 TotoSelectionMatrixView(
                     matches = matches,
-                    onToggleOutcome = onTogglePrediction
+                    onToggleOutcome = onTogglePrediction,
+                    onChangeFavorite = onSetMatchFavorite
                 )
             }
 
@@ -226,7 +261,8 @@ fun MatchAnalysisScreen(
                     match = match,
                     isFavorited = favoritedMatchNumbers.contains(match.matchNumber),
                     onToggleFavorite = { onToggleFavorite(match.matchNumber) },
-                    onToggleOutcome = { outcome -> onTogglePrediction(match.id, outcome) }
+                    onToggleOutcome = { outcome -> onTogglePrediction(match.id, outcome) },
+                    onSetFavorite = { favorite -> onSetMatchFavorite(match.id, favorite) }
                 )
             }
         }
@@ -462,7 +498,8 @@ private fun ModernMatchCard(
     match: TotoMatch,
     isFavorited: Boolean = false,
     onToggleFavorite: () -> Unit = {},
-    onToggleOutcome: (PredictionOutcome) -> Unit
+    onToggleOutcome: (PredictionOutcome) -> Unit,
+    onSetFavorite: (PredictionOutcome?) -> Unit
 ) {
     Card(
         modifier = Modifier
@@ -590,6 +627,61 @@ private fun ModernMatchCard(
                 )
             }
 
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // The favorite used by surprise filters is independent of 1/X/2
+            // coupon choices and of the star-based followed-match feature.
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(
+                    text = "Filtre favorisi:",
+                    color = TextSecondary,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                listOf(PredictionOutcome.HOME, PredictionOutcome.DRAW, PredictionOutcome.AWAY).forEach { side ->
+                    val chosen = match.favoriteKnown && match.favoriteOutcome == side
+                    Box(
+                        modifier = Modifier
+                            .size(width = 34.dp, height = 30.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(if (chosen) Color(0xFF065F46) else Color(0xFF1E293B))
+                            .border(
+                                1.dp,
+                                if (chosen) ElectricGreen else DarkCardBorder,
+                                RoundedCornerShape(6.dp)
+                            )
+                            .clickable { onSetFavorite(side) }
+                            .testTag("match_favorite_${match.matchNumber}_${side.code}"),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            side.label,
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Black
+                        )
+                    }
+                }
+                TextButton(
+                    onClick = { onSetFavorite(null) },
+                    modifier = Modifier.testTag("match_favorite_auto_${match.matchNumber}")
+                ) {
+                    Text(
+                        text = when {
+                            !match.hasAutomaticFavoriteData -> "Oto (oran yok)"
+                            match.favoriteOverride == null -> "Oto ✓"
+                            else -> "Oto (${match.automaticFavoriteOutcome.label})"
+                        },
+                        color = if (match.favoriteOverride == null) ElectricGreen else CasinoGold,
+                        fontSize = 10.sp
+                    )
+                }
+            }
+
             Spacer(modifier = Modifier.height(12.dp))
 
             // 3 Modern Outcome Selection Chips (1 - X - 2)
@@ -597,9 +689,9 @@ private fun ModernMatchCard(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                val homeProb = match.probability.home.firstOrNull() ?: 50
-                val drawProb = match.probability.draw.firstOrNull() ?: 25
-                val awayProb = match.probability.away.firstOrNull() ?: 25
+                val homeProb = match.probability.home.firstOrNull()
+                val drawProb = match.probability.draw.firstOrNull()
+                val awayProb = match.probability.away.firstOrNull()
 
                 ModernOutcomeChip(
                     label = "1",
@@ -636,7 +728,7 @@ private fun ModernMatchCard(
 private fun ModernOutcomeChip(
     label: String,
     teamTitle: String,
-    probability: Int,
+    probability: Int?,
     isSelected: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
@@ -680,7 +772,7 @@ private fun ModernOutcomeChip(
             Spacer(modifier = Modifier.height(2.dp))
 
             Text(
-                text = "$probability%",
+                text = probability?.let { "$it%" } ?: "Oran yok",
                 color = if (isSelected) ElectricGreenGlow else CasinoGoldLight,
                 fontWeight = FontWeight.Bold,
                 fontSize = 12.sp
@@ -688,21 +780,23 @@ private fun ModernOutcomeChip(
 
             Spacer(modifier = Modifier.height(6.dp))
 
-            // Mini visual percentage progress bar
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(3.dp)
-                    .clip(RoundedCornerShape(2.dp))
-                    .background(Color(0xFF1E293B))
-            ) {
+            // Never draw a fake percentage bar when the official feed has no odds.
+            if (probability != null) {
                 Box(
                     modifier = Modifier
-                        .fillMaxWidth(fraction = (probability / 100f).coerceIn(0.05f, 1f))
+                        .fillMaxWidth()
                         .height(3.dp)
                         .clip(RoundedCornerShape(2.dp))
-                        .background(if (isSelected) ElectricGreen else ElectricCyan)
-                )
+                        .background(Color(0xFF1E293B))
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(fraction = (probability / 100f).coerceIn(0.05f, 1f))
+                            .height(3.dp)
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(if (isSelected) ElectricGreen else ElectricCyan)
+                    )
+                }
             }
         }
     }

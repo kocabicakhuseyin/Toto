@@ -21,10 +21,15 @@ import androidx.compose.material.icons.filled.GridOn
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -61,9 +66,12 @@ private val CellBorder = Color(0xFF1E293B)
 fun TotoSelectionMatrixView(
     matches: List<TotoMatch>,
     onToggleOutcome: (matchId: Int, outcome: PredictionOutcome) -> Unit,
+    onChangeFavorite: (matchId: Int, outcome: PredictionOutcome?) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier
 ) {
     val scrollState = rememberScrollState()
+    // Favorite editing is independent from selecting 1/0/2 outcomes for a coupon.
+    var favoriteEditMode by remember { mutableStateOf(false) }
 
     // Calculate overall stats: singles, doubles, triples
     val (singlesCount, doublesCount, triplesCount) = remember(matches) {
@@ -130,6 +138,59 @@ fun TotoSelectionMatrixView(
 
             Spacer(modifier = Modifier.height(10.dp))
 
+            // Both operations are available directly on the Bulletin matrix.
+            // Explicit mode prevents an accidental change to a user's coupon.
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                listOf(
+                    false to "Kupon Seçimi",
+                    true to "★ Favori Seçimi"
+                ).forEach { (mode, label) ->
+                    val active = favoriteEditMode == mode
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(38.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(
+                                if (active) {
+                                    if (mode) Color(0xFF065F46) else SelectedBlue
+                                } else Color(0xFF172033)
+                            )
+                            .border(
+                                1.dp,
+                                if (active) {
+                                    if (mode) ElectricGreen else ElectricCyan
+                                } else CellBorder,
+                                RoundedCornerShape(8.dp)
+                            )
+                            .clickable { favoriteEditMode = mode }
+                            .testTag(if (mode) "matrix_mode_favorite" else "matrix_mode_coupon"),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = label,
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = if (favoriteEditMode) {
+                    "Favori modu: Her maçın 1 / 0 / 2 hücresine dokunun; kupon tercihi değişmez. Oto için Fav. satırına dokunun."
+                } else {
+                    "Kupon modu: 1 / 0 / 2 hücreleri kuponu düzenler. Favoriyi değiştirmek için ★ Favori Seçimi'ni açın."
+                },
+                color = if (favoriteEditMode) ElectricGreen else TextSecondary,
+                fontSize = 11.sp,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = "15 maçın tamamı için tabloyu sağa kaydırın →",
                 color = ElectricCyan,
@@ -217,12 +278,20 @@ fun TotoSelectionMatrixView(
                         }
                     }
 
+                    // Favorite is distinct from the user's 1 / X / 2 predictions.
+                    MatrixFavoriteRow(
+                        matches = matches,
+                        onChangeFavorite = onChangeFavorite
+                    )
+
                     // ROW 1: "2" (Deplasman)
                     MatrixOutcomeRow(
                         outcome = PredictionOutcome.AWAY,
                         label = "2",
                         matches = matches,
-                        onToggle = { matchId -> onToggleOutcome(matchId, PredictionOutcome.AWAY) }
+                        favoriteEditMode = favoriteEditMode,
+                        onToggle = { matchId -> onToggleOutcome(matchId, PredictionOutcome.AWAY) },
+                        onFavoriteSelect = { matchId -> onChangeFavorite(matchId, PredictionOutcome.AWAY) }
                     )
 
                     // ROW 2: "0" (Beraberlik / X)
@@ -230,7 +299,9 @@ fun TotoSelectionMatrixView(
                         outcome = PredictionOutcome.DRAW,
                         label = "0",
                         matches = matches,
-                        onToggle = { matchId -> onToggleOutcome(matchId, PredictionOutcome.DRAW) }
+                        favoriteEditMode = favoriteEditMode,
+                        onToggle = { matchId -> onToggleOutcome(matchId, PredictionOutcome.DRAW) },
+                        onFavoriteSelect = { matchId -> onChangeFavorite(matchId, PredictionOutcome.DRAW) }
                     )
 
                     // ROW 3: "1" (Ev Sahibi)
@@ -238,7 +309,9 @@ fun TotoSelectionMatrixView(
                         outcome = PredictionOutcome.HOME,
                         label = "1",
                         matches = matches,
-                        onToggle = { matchId -> onToggleOutcome(matchId, PredictionOutcome.HOME) }
+                        favoriteEditMode = favoriteEditMode,
+                        onToggle = { matchId -> onToggleOutcome(matchId, PredictionOutcome.HOME) },
+                        onFavoriteSelect = { matchId -> onChangeFavorite(matchId, PredictionOutcome.HOME) }
                     )
                 }
             }
@@ -299,13 +372,111 @@ fun TotoSelectionMatrixView(
 }
 
 @Composable
+private fun MatrixFavoriteRow(
+    matches: List<TotoMatch>,
+    onChangeFavorite: (Int, PredictionOutcome?) -> Unit
+) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(width = 38.dp, height = 30.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(Color(0xFF065F46)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text("Fav.", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+        }
+        matches.take(15).forEach { match ->
+            var expanded by remember(match.id) { mutableStateOf(false) }
+            val isManual = match.favoriteOverride != null
+            Box {
+                Box(
+                    modifier = Modifier
+                        .size(width = 28.dp, height = 30.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(if (isManual) Color(0xFF78350F) else Color(0xFF064E3B))
+                        .border(
+                            1.dp,
+                            if (isManual) CasinoGold else ElectricGreen,
+                            RoundedCornerShape(4.dp)
+                        )
+                        .clickable { expanded = true }
+                        .testTag("matrix_favorite_${match.id}"),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = (if (match.favoriteKnown) match.favoriteOutcome.label else "?") +
+                            if (isManual) "*" else "",
+                        color = Color.White,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Black
+                    )
+                }
+                DropdownMenu(
+                    expanded = expanded,
+                    onDismissRequest = { expanded = false }
+                ) {
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                if (match.hasAutomaticFavoriteData)
+                                    "Otomatik (${match.automaticFavoriteOutcome.label})"
+                                else "Otomatik (oran yok)"
+                            )
+                        },
+                        onClick = {
+                            onChangeFavorite(match.id, null)
+                            expanded = false
+                        },
+                        modifier = Modifier.testTag("matrix_favorite_auto_${match.id}")
+                    )
+                    listOf(PredictionOutcome.HOME, PredictionOutcome.DRAW, PredictionOutcome.AWAY).forEach { choice ->
+                        DropdownMenuItem(
+                            text = { Text("Elle: ${choice.label}") },
+                            onClick = {
+                                onChangeFavorite(match.id, choice)
+                                expanded = false
+                            },
+                            modifier = Modifier.testTag("matrix_favorite_${choice.code}_${match.id}")
+                        )
+                    }
+                }
+            }
+        }
+        Box(
+            modifier = Modifier
+                .size(width = 34.dp, height = 30.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(Color(0xFF1E293B)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "${matches.count { it.favoriteOverride != null }}*",
+                color = CasinoGoldLight,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
+@Composable
 private fun MatrixOutcomeRow(
     outcome: PredictionOutcome,
     label: String,
     matches: List<TotoMatch>,
-    onToggle: (matchId: Int) -> Unit
+    favoriteEditMode: Boolean,
+    onToggle: (matchId: Int) -> Unit,
+    onFavoriteSelect: (matchId: Int) -> Unit
 ) {
-    val totalCount = matches.count { it.selections.contains(outcome) }
+    val totalCount = if (favoriteEditMode) {
+        matches.count { it.favoriteOutcome == outcome }
+    } else {
+        matches.count { it.selections.contains(outcome) }
+    }
 
     Row(
         horizontalArrangement = Arrangement.spacedBy(3.dp),
@@ -329,20 +500,39 @@ private fun MatrixOutcomeRow(
 
         // 15 Match Cells: Interactive toggle button
         matches.take(15).forEach { match ->
-            val isSelected = match.selections.contains(outcome)
+            val isSelected = if (favoriteEditMode) {
+                match.favoriteKnown && match.favoriteOutcome == outcome
+            } else {
+                match.selections.contains(outcome)
+            }
 
             Box(
                 modifier = Modifier
                     .size(width = 28.dp, height = 30.dp)
                     .clip(RoundedCornerShape(4.dp))
-                    .background(if (isSelected) SelectedBlue else UnselectedCellBg)
+                    .background(
+                        when {
+                            favoriteEditMode && isSelected -> Color(0xFF065F46)
+                            isSelected -> SelectedBlue
+                            else -> UnselectedCellBg
+                        }
+                    )
                     .border(
                         width = if (isSelected) 1.dp else 0.5.dp,
-                        color = if (isSelected) Color(0xFF60A5FA) else CellBorder,
+                        color = when {
+                            favoriteEditMode && isSelected -> ElectricGreen
+                            isSelected -> Color(0xFF60A5FA)
+                            else -> CellBorder
+                        },
                         shape = RoundedCornerShape(4.dp)
                     )
-                    .clickable { onToggle(match.id) }
-                    .testTag("matrix_cell_${match.id}_$label"),
+                    .clickable {
+                        if (favoriteEditMode) onFavoriteSelect(match.id) else onToggle(match.id)
+                    }
+                    .testTag(
+                        if (favoriteEditMode) "matrix_favorite_direct_${match.id}_${outcome.code}"
+                        else "matrix_cell_${match.id}_$label"
+                    ),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
