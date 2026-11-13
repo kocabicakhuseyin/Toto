@@ -5,6 +5,17 @@ import com.example.model.TotoMatch
 import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
 
+const val NO_NEW_BULLETIN_ERROR = "Yeni bülten yüklenmedi"
+
+/**
+ * Returns true only when a Spor Toto bulletin exists, is active, has all 15 matches,
+ * and has at least one match that has not finished yet.
+ */
+fun WeeklyBulletinResponse?.isPlayable(): Boolean {
+    if (this == null || !isActive || matches.size < 15) return false
+    return matches.any { !it.status.equals("FINISHED", ignoreCase = true) }
+}
+
 /**
  * Data model representing the complete weekly Spor Toto bulletin.
  */

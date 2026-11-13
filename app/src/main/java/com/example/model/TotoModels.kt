@@ -6,6 +6,8 @@ enum class PredictionOutcome(val code: String, val label: String) {
     AWAY("2", "2")
 }
 
+const val INSUFFICIENT_BALANCE_ERROR = "Bakiye yetersiz"
+
 data class MatchProbability(
     val home: List<Int>, // e.g. [79, 81, 78, 88]
     val draw: List<Int>, // e.g. [10, 9, 11, 8]

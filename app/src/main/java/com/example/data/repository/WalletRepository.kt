@@ -5,6 +5,7 @@ import com.example.data.local.entity.PurchaseHistoryEntity
 import com.example.data.local.entity.UserBalanceEntity
 import com.example.model.COLUMN_FEE_TL
 import com.example.model.GooglePlayPackage
+import com.example.model.INSUFFICIENT_BALANCE_ERROR
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import java.text.SimpleDateFormat
@@ -42,7 +43,8 @@ class WalletRepository(
 
     suspend fun canAfford(columnCount: Int): Boolean {
         val required = columnCount * COLUMN_FEE_TL
-        return getCurrentBalance() >= required
+        val current = getCurrentBalance()
+        return current > 0.0 && current >= required
     }
 
     /**
@@ -95,7 +97,7 @@ class WalletRepository(
                 val current = getCurrentBalance()
                 Result.failure(
                     IllegalStateException(
-                        "Yetersiz Bakiye! $columnCount kolon için %.2f ₺ gerekli. Mevcut bakiye: %.2f ₺".format(
+                        "$INSUFFICIENT_BALANCE_ERROR! $columnCount kolon için %.2f ₺ gerekli. Mevcut bakiye: %.2f ₺".format(
                             Locale.US,
                             totalFeeTL,
                             current

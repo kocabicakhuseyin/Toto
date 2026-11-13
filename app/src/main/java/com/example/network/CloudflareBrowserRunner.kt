@@ -48,6 +48,8 @@ data class CloudflareRestPreviewResult(
 
 enum class CloudflareRunStatus {
     COMPLETED,
+    NO_BULLETIN,
+    INSUFFICIENT_BALANCE,
     REQUIRES_2FA,
     WAF_BLOCKED,
     LOGIN_FAILED,
@@ -198,6 +200,8 @@ object CloudflareBrowserRunner {
                 if (parsed != null) {
                     val mappedStatus = when (parsed.status.uppercase()) {
                         "COMPLETED" -> if (parsed.success) CloudflareRunStatus.COMPLETED else CloudflareRunStatus.ERROR
+                        "NO_BULLETIN" -> CloudflareRunStatus.NO_BULLETIN
+                        "INSUFFICIENT_BALANCE" -> CloudflareRunStatus.INSUFFICIENT_BALANCE
                         "REQUIRES_2FA" -> CloudflareRunStatus.REQUIRES_2FA
                         "WAF_BLOCKED" -> CloudflareRunStatus.WAF_BLOCKED
                         "LOGIN_FAILED" -> CloudflareRunStatus.LOGIN_FAILED
@@ -209,7 +213,13 @@ object CloudflareBrowserRunner {
                         playedColumnsCount = parsed.playedColumnsCount,
                         steps = parsed.steps,
                         screenshotBase64 = parsed.screenshotBase64,
-                        errorMessage = parsed.errorMessage
+                        errorMessage = when (mappedStatus) {
+                            CloudflareRunStatus.NO_BULLETIN ->
+                                parsed.errorMessage?.takeIf { it.isNotBlank() } ?: "Yeni bülten yüklenmedi"
+                            CloudflareRunStatus.INSUFFICIENT_BALANCE ->
+                                parsed.errorMessage?.takeIf { it.isNotBlank() } ?: "Bakiye yetersiz"
+                            else -> parsed.errorMessage
+                        }
                     )
                 } else {
                     CloudflareWorkerRunResult(

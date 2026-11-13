@@ -21,7 +21,14 @@ interface NesineAutoPlayRequest {
 
 interface NesineAutoPlayResponse {
   success: boolean;
-  status: "COMPLETED" | "REQUIRES_2FA" | "WAF_BLOCKED" | "LOGIN_FAILED" | "ERROR";
+  status:
+    | "COMPLETED"
+    | "NO_BULLETIN"
+    | "INSUFFICIENT_BALANCE"
+    | "REQUIRES_2FA"
+    | "WAF_BLOCKED"
+    | "LOGIN_FAILED"
+    | "ERROR";
   sessionId: string;
   playedColumnsCount: number;
   steps: string[];
@@ -154,6 +161,39 @@ export default {
         }
       }
 
+      // Verify that a playable 15-match Spor Toto bulletin exists on the page
+      const bulletinStatus = await page.evaluate(() => {
+        const text = (document.body?.innerText ?? "").toLowerCase();
+        const hasNativeGrid = !!document.getElementById("m-c-0-0-0") && !!document.getElementById("m-c-14-0-0");
+        const fallbackRows = document.querySelectorAll(
+          ".sportoto-row, [data-match-row], tr[data-match-no], .toto-match-item"
+        );
+        const explicitlyClosed =
+          text.includes("yeni bülten") ||
+          text.includes("bülten bulunm") ||
+          text.includes("aktif bülten yok") ||
+          text.includes("oynanacak bülten") ||
+          text.includes("program açıklanmadı");
+        return {
+          playable: (hasNativeGrid || fallbackRows.length >= 15) && !explicitlyClosed,
+          hasNativeGrid,
+          rowCount: fallbackRows.length,
+        };
+      });
+
+      if (!bulletinStatus.playable) {
+        const shot = (await page.screenshot({ encoding: "base64" })) as string;
+        return jsonResponse<NesineAutoPlayResponse>({
+          success: false,
+          status: "NO_BULLETIN",
+          sessionId,
+          playedColumnsCount: 0,
+          steps: [...steps, "❌ Oynanacak aktif Spor Toto bülteni bulunamadı."],
+          screenshotBase64: shot,
+          errorMessage: "Yeni bülten yüklenmedi",
+        });
+      }
+
       // Fill Spor Toto columns in batches of 4 (#m-c-{match}-{group}-{outcome} or fallback rows)
       let playedCount = 0;
       const chunkSize = 4;
@@ -222,19 +262,63 @@ export default {
         }
       }
 
-      steps.push(
-        playedCount > 0
-          ? `✅ ${playedCount} kolon Spor Toto kupon tablosuna işaretlendi.`
-          : "ℹ️ Spor Toto maç satırları ekran görüntüsü için hazırlandı."
-      );
+      const screenshotBase64 = (await page.screenshot({ encoding: "base64" })) as string;
 
-      if (!payload.dryRun && playedCount > 0) {
+      if (playedCount === 0) {
+        return jsonResponse<NesineAutoPlayResponse>({
+          success: false,
+          status: "NO_BULLETIN",
+          sessionId,
+          playedColumnsCount: 0,
+          steps: [...steps, "❌ Oynanacak aktif Spor Toto bülteni bulunamadı."],
+          screenshotBase64,
+          errorMessage: "Yeni bülten yüklenmedi",
+        });
+      }
+
+      steps.push(`✅ ${playedCount} kolon Spor Toto kupon tablosuna işaretlendi.`);
+
+      if (!payload.dryRun) {
+        const balanceIssue = await page.evaluate((requiredCost: number) => {
+          const text = (document.body?.innerText ?? "").toLowerCase();
+          if (
+            text.includes("bakiye yetersiz") ||
+            text.includes("yetersiz bakiye") ||
+            text.includes("bakiyeniz yetersiz") ||
+            text.includes("yeterli bakiye bulunm")
+          ) {
+            return true;
+          }
+          const balanceEl = document.querySelector<HTMLElement>(
+            "[class*='balance'], [class*='bakiye'], [data-testid*='balance'], .user-balance, .wallet-amount"
+          );
+          if (balanceEl) {
+            const raw = (balanceEl.innerText ?? "").replace(/[^\d.,]/g, "").replace(/\./g, "").replace(",", ".");
+            const parsed = Number.parseFloat(raw);
+            if (!Number.isNaN(parsed) && (parsed <= 0 || parsed < requiredCost)) {
+              return true;
+            }
+          }
+          return false;
+        }, payload.totalCostTL);
+
+        if (balanceIssue) {
+          const balanceShot = (await page.screenshot({ encoding: "base64" })) as string;
+          return jsonResponse<NesineAutoPlayResponse>({
+            success: false,
+            status: "INSUFFICIENT_BALANCE",
+            sessionId,
+            playedColumnsCount: playedCount,
+            steps: [...steps, "❌ Nesine hesabında yeterli bakiye bulunamadı."],
+            screenshotBase64: balanceShot,
+            errorMessage: "Bakiye yetersiz",
+          });
+        }
+
         steps.push("🚀 Kupon onay isteği Nesine'ye iletildi.");
       } else {
         steps.push("🛡️ Önizleme Modu (Dry Run): Kupon sepete hazırlandı, son onay kullanıcıya bırakıldı.");
       }
-
-      const screenshotBase64 = (await page.screenshot({ encoding: "base64" })) as string;
 
       return jsonResponse<NesineAutoPlayResponse>({
         success: true,

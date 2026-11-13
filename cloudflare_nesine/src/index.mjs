@@ -81,6 +81,20 @@ function existingPage(browser) {
   ) || pages[0] || null;
 }
 
+class NoBulletinError extends Error {
+  constructor(message = "Yeni bülten yüklenmedi") {
+    super(message);
+    this.name = "NoBulletinError";
+  }
+}
+
+class InsufficientBalanceError extends Error {
+  constructor(message = "Bakiye yetersiz") {
+    super(message);
+    this.name = "InsufficientBalanceError";
+  }
+}
+
 async function programPage(browser) {
   let page = existingPage(browser);
   if (!page) {
@@ -95,7 +109,11 @@ async function programPage(browser) {
   if (!isOfficialProgram(page.url())) {
     throw new Error("Nesine resmi Spor Toto sayfası açık değil.");
   }
-  await page.locator("#m-c-14-3-2").waitFor({ state: "attached", timeout: 35_000 });
+  try {
+    await page.locator("#m-c-14-3-2").waitFor({ state: "attached", timeout: 20_000 });
+  } catch {
+    throw new NoBulletinError("Yeni bülten yüklenmedi");
+  }
   return page;
 }
 
@@ -138,8 +156,11 @@ async function newSession(env) {
       account_login_verified: false,
       wager_submitted: false,
     });
-  } catch {
+  } catch (error) {
     await env.BROWSER.closeSession(session.sessionId).catch(() => {});
+    if (error instanceof NoBulletinError) {
+      return json({ detail: "Yeni bülten yüklenmedi", code: "NO_BULLETIN" }, 409);
+    }
     return json({ detail: "Bulut tarayıcı Nesine sayfasını açamadı." }, 503);
   }
 }
@@ -153,6 +174,18 @@ async function fill(env, body) {
   try {
     const result = await withSession(env, sessionId, async (browser) => {
       const page = await programPage(browser);
+      const balanceMissing = await page.evaluate(() => {
+        const text = (document.body?.innerText || "").toLowerCase();
+        return (
+          text.includes("bakiye yetersiz") ||
+          text.includes("yetersiz bakiye") ||
+          text.includes("bakiyeniz yetersiz") ||
+          text.includes("yeterli bakiye bulunm")
+        );
+      });
+      if (balanceMissing) {
+        throw new InsufficientBalanceError("Bakiye yetersiz");
+      }
       const wanted = desiredCheckboxStates(columns);
 
       // Read and click all 180 selections inside one browser round trip.
@@ -215,7 +248,13 @@ async function fill(env, body) {
       session_id: sessionId,
       wager_submitted: false,
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof NoBulletinError) {
+      return json({ detail: "Yeni bülten yüklenmedi", code: "NO_BULLETIN" }, 409);
+    }
+    if (error instanceof InsufficientBalanceError) {
+      return json({ detail: "Bakiye yetersiz", code: "INSUFFICIENT_BALANCE" }, 402);
+    }
     return json({
       detail: "İşaretleme doğrulanamadı. Tarayıcı oturumunun açık ve Nesine sayfasının erişilebilir olduğunu kontrol edin."
     }, 503);
@@ -231,7 +270,10 @@ async function preview(env, sessionId) {
     return new Response(bytes, {
       headers: { ...NO_CACHE_HEADERS, "Content-Type": "image/png" },
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof NoBulletinError) {
+      return json({ detail: "Yeni bülten yüklenmedi", code: "NO_BULLETIN" }, 409);
+    }
     return json({ detail: "Önizleme alınamadı; oturum süresi dolmuş olabilir." }, 503);
   }
 }

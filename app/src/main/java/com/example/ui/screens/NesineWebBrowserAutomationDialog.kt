@@ -109,18 +109,27 @@ fun NesineWebBrowserAutomationDialog(
                 activeColumnIdx = idx
                 val col = columns[idx]
                 val script = NesineAutoPlayJsInjector.buildColumnFillScript(col)
+                var failedMsg: String? = null
                 webViewRef?.evaluateJavascript(script) { rawResult ->
                     val cleaned = rawResult?.trim('"')?.replace("\\\"", "\"")
-                    val msg = runCatching {
-                        JSONObject(cleaned ?: "{}").optString("message")
-                    }.getOrNull()
-                    automationFeedback = msg?.ifBlank { null }
-                        ?: "Kolon #${col.index} JS enjeksiyonu çalıştırıldı."
+                    val json = runCatching { JSONObject(cleaned ?: "{}") }.getOrNull()
+                    val ok = json?.optBoolean("success", true) ?: true
+                    val msg = json?.optString("message").orEmpty()
+                    if (!ok) {
+                        failedMsg = msg.ifBlank { "Yeni bülten yüklenmedi" }
+                        automationFeedback = "❌ $failedMsg"
+                        isBatchRunning = false
+                    } else {
+                        automationFeedback = msg.ifBlank { "Kolon #${col.index} JS enjeksiyonu çalıştırıldı." }
+                    }
                 }
                 delay(1100L)
+                if (!isBatchRunning || failedMsg != null) break
             }
-            isBatchRunning = false
-            automationFeedback = "✅ ${columns.size} kolon işleme alındı. Nesine sepetinden son onayı verebilirsiniz."
+            if (isBatchRunning) {
+                isBatchRunning = false
+                automationFeedback = "✅ ${columns.size} kolon işleme alındı. Nesine sepetinden son onayı verebilirsiniz."
+            }
         }
     }
 

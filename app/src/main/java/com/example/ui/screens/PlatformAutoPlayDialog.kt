@@ -654,6 +654,10 @@ private fun NesineCloudflareAutoPlayDialog(
                             statusMessage = when (res.status) {
                                 CloudflareRunStatus.COMPLETED ->
                                     "✅ Cloudflare tamamlandı: ${res.playedColumnsCount} kolon işlendi."
+                                CloudflareRunStatus.NO_BULLETIN ->
+                                    "❌ ${res.errorMessage?.takeIf { it.isNotBlank() } ?: "Yeni bülten yüklenmedi"}"
+                                CloudflareRunStatus.INSUFFICIENT_BALANCE ->
+                                    "❌ ${res.errorMessage?.takeIf { it.isNotBlank() } ?: "Bakiye yetersiz"}"
                                 CloudflareRunStatus.REQUIRES_2FA ->
                                     "📲 SMS (2FA) doğrulaması gerekli. WebView robotuyla devam edebilirsiniz."
                                 CloudflareRunStatus.WAF_BLOCKED ->
@@ -749,7 +753,10 @@ private fun NesineCloudflareAutoPlayDialog(
                                 text = msg,
                                 color = when (workerResult?.status) {
                                     CloudflareRunStatus.COMPLETED -> ElectricGreen
-                                    CloudflareRunStatus.ERROR, CloudflareRunStatus.LOGIN_FAILED -> VibrantRed
+                                    CloudflareRunStatus.ERROR,
+                                    CloudflareRunStatus.LOGIN_FAILED,
+                                    CloudflareRunStatus.NO_BULLETIN,
+                                    CloudflareRunStatus.INSUFFICIENT_BALANCE -> VibrantRed
                                     else -> ElectricCyan
                                 },
                                 fontWeight = FontWeight.Bold,

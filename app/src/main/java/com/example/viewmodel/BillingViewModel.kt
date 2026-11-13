@@ -11,6 +11,7 @@ import com.example.data.local.entity.PurchaseHistoryEntity
 import com.example.data.repository.WalletRepository
 import com.example.model.COLUMN_FEE_TL
 import com.example.model.GooglePlayPackage
+import com.example.model.INSUFFICIENT_BALANCE_ERROR
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -107,7 +108,7 @@ class BillingViewModel(
      */
     fun canAffordColumns(columnCount: Int): Boolean {
         val required = calculateChargeTL(columnCount)
-        return balanceTL.value >= required
+        return balanceTL.value > 0.0 && balanceTL.value >= required
     }
 
     /**
@@ -132,14 +133,14 @@ class BillingViewModel(
             val required = calculateChargeTL(columnCount)
             val current = walletRepository.getCurrentBalance()
 
-            if (current < required) {
+            if (current <= 0.0 || current < required) {
                 val insufficient = ChargeResult.InsufficientBalance(
                     columnCount = columnCount,
                     requiredAmountTL = required,
                     currentBalanceTL = current
                 )
                 _lastChargeResult.value = insufficient
-                _statusMessage.value = "Yetersiz bakiye! $columnCount kolon için %.2f ₺ gerekli. Mevcut bakiye: %.2f ₺"
+                _statusMessage.value = "$INSUFFICIENT_BALANCE_ERROR! $columnCount kolon için %.2f ₺ gerekli. Mevcut bakiye: %.2f ₺"
                     .format(Locale.US, required, current)
                 _isProcessing.value = false
                 onResult(insufficient)

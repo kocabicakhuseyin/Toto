@@ -81,6 +81,8 @@ import com.example.ui.theme.VibrantRed
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Warning
+import com.example.network.model.NO_NEW_BULLETIN_ERROR
 
 @Composable
 fun MatchAnalysisScreen(
@@ -101,9 +103,13 @@ fun MatchAnalysisScreen(
     onRefreshBulletin: () -> Unit = {},
     favoritedMatchNumbers: Set<Int> = emptySet(),
     onToggleFavorite: (Int) -> Unit = {},
+    hasPlayableBulletin: Boolean = true,
+    bulletinError: String? = null,
     modifier: Modifier = Modifier
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     val totalSelectedMatches = matches.count { it.selections.isNotEmpty() }
+    val noPlayableBulletin = !hasPlayableBulletin || bulletinError != null || matches.size < 15
     var showAdvancedTools by remember { mutableStateOf(false) }
 
     Column(
@@ -181,53 +187,118 @@ fun MatchAnalysisScreen(
             )
         }
 
-        // 15 Matches list with sleek sports betting style & 1-0-2 Selection Matrix
-        LazyColumn(
-            modifier = Modifier
-                .weight(1f)
-                .padding(horizontal = 12.dp, vertical = 6.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            // 1. Interactive 15-Match Selection Matrix (1 - 0 - 2) Table (Matching user screenshot)
-            item {
-                TotoSelectionMatrixView(
-                    matches = matches,
-                    onToggleOutcome = onTogglePrediction
-                )
-            }
-
-            // 2. Section Header for Match Cards
-            item {
-                Row(
+        if (noPlayableBulletin) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = DarkCard),
+                    shape = RoundedCornerShape(16.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.5.dp, VibrantRed),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 4.dp, bottom = 2.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                        .testTag("card_no_new_bulletin_error")
                 ) {
-                    Text(
-                        text = "15 Maç Detaylı Oran & Tercih Listesi:",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 13.sp,
-                        color = TextSecondary
-                    )
-                    Text(
-                        text = "$totalSelectedMatches / 15 Seçildi",
-                        color = if (totalSelectedMatches == 15) ElectricGreen else CasinoGoldLight,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Warning,
+                            contentDescription = NO_NEW_BULLETIN_ERROR,
+                            tint = VibrantRed,
+                            modifier = Modifier.size(40.dp)
+                        )
+                        Text(
+                            text = bulletinError ?: NO_NEW_BULLETIN_ERROR,
+                            color = VibrantRed,
+                            fontWeight = FontWeight.Black,
+                            fontSize = 18.sp,
+                            textAlign = TextAlign.Center
+                        )
+                        Text(
+                            text = "Şu anda oynanabilecek aktif Spor Toto bülteni bulunmuyor. Yeni hafta bülteni yayınlandığında tekrar deneyin.",
+                            color = TextSecondary,
+                            fontSize = 13.sp,
+                            textAlign = TextAlign.Center,
+                            lineHeight = 18.sp
+                        )
+                        Button(
+                            onClick = onRefreshBulletin,
+                            enabled = !isRefreshing,
+                            colors = ButtonDefaults.buttonColors(containerColor = CasinoGold),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 48.dp)
+                                .testTag("btn_retry_bulletin")
+                        ) {
+                            Text(
+                                text = if (isRefreshing) "Kontrol Ediliyor..." else "↻ Bülteni Yenile",
+                                color = Color.Black,
+                                fontWeight = FontWeight.Black,
+                                fontSize = 13.sp
+                            )
+                        }
+                    }
                 }
             }
+        } else {
+            // 15 Matches list with sleek sports betting style & 1-0-2 Selection Matrix
+            LazyColumn(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                // 1. Interactive 15-Match Selection Matrix (1 - 0 - 2) Table (Matching user screenshot)
+                item {
+                    TotoSelectionMatrixView(
+                        matches = matches,
+                        onToggleOutcome = onTogglePrediction
+                    )
+                }
 
-            // 3. 15 Match Cards with 1, 0, 2 options
-            items(matches, key = { it.id }) { match ->
-                ModernMatchCard(
-                    match = match,
-                    isFavorited = favoritedMatchNumbers.contains(match.matchNumber),
-                    onToggleFavorite = { onToggleFavorite(match.matchNumber) },
-                    onToggleOutcome = { outcome -> onTogglePrediction(match.id, outcome) }
-                )
+                // 2. Section Header for Match Cards
+                item {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 4.dp, bottom = 2.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "15 Maç Detaylı Oran & Tercih Listesi:",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            color = TextSecondary
+                        )
+                        Text(
+                            text = "$totalSelectedMatches / 15 Seçildi",
+                            color = if (totalSelectedMatches == 15) ElectricGreen else CasinoGoldLight,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                // 3. 15 Match Cards with 1, 0, 2 options
+                items(matches, key = { it.id }) { match ->
+                    ModernMatchCard(
+                        match = match,
+                        isFavorited = favoritedMatchNumbers.contains(match.matchNumber),
+                        onToggleFavorite = { onToggleFavorite(match.matchNumber) },
+                        onToggleOutcome = { outcome -> onTogglePrediction(match.id, outcome) }
+                    )
+                }
             }
         }
 
@@ -247,12 +318,18 @@ fun MatchAnalysisScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Button(
-                        onClick = onOpenFilterDialog,
+                        onClick = {
+                            if (noPlayableBulletin) {
+                                android.widget.Toast.makeText(context, bulletinError ?: NO_NEW_BULLETIN_ERROR, android.widget.Toast.LENGTH_SHORT).show()
+                            } else {
+                                onOpenFilterDialog()
+                            }
+                        },
                         colors = ButtonDefaults.buttonColors(containerColor = VibrantRed),
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier
                             .weight(1f)
-                            .height(46.dp)
+                            .height(48.dp)
                             .testTag("btn_docked_filter_dialog")
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -270,13 +347,19 @@ fun MatchAnalysisScreen(
                     }
 
                     Button(
-                        onClick = onOpenFormulaWizard,
+                        onClick = {
+                            if (noPlayableBulletin) {
+                                android.widget.Toast.makeText(context, bulletinError ?: NO_NEW_BULLETIN_ERROR, android.widget.Toast.LENGTH_SHORT).show()
+                            } else {
+                                onOpenFormulaWizard()
+                            }
+                        },
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
                         border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155)),
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier
                             .weight(1f)
-                            .height(46.dp)
+                            .height(48.dp)
                             .testTag("btn_docked_generate_coupon")
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -295,12 +378,18 @@ fun MatchAnalysisScreen(
                 Spacer(modifier = Modifier.height(7.dp))
 
                 Button(
-                    onClick = onGenerateCoupon,
+                    onClick = {
+                        if (noPlayableBulletin) {
+                            android.widget.Toast.makeText(context, bulletinError ?: NO_NEW_BULLETIN_ERROR, android.widget.Toast.LENGTH_SHORT).show()
+                        } else {
+                            onGenerateCoupon()
+                        }
+                    },
                     colors = ButtonDefaults.buttonColors(containerColor = CasinoGold),
                     shape = RoundedCornerShape(10.dp),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(44.dp)
+                        .height(48.dp)
                         .testTag("btn_generate_coupon_direct")
                 ) {
                     Text(

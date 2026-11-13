@@ -43,7 +43,9 @@ import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.SportsScore
+import androidx.compose.material.icons.filled.Warning
 import com.example.data.local.SavedJsonCouponMeta
+import com.example.network.model.NO_NEW_BULLETIN_ERROR
 import java.io.File
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -75,6 +77,7 @@ import com.example.engine.PlatformAutomationManager
 import com.example.model.BettingPlatform
 import com.example.model.COLUMN_FEE_TL
 import com.example.model.Coupon
+import com.example.model.INSUFFICIENT_BALANCE_ERROR
 import com.example.model.PlatformCredentials
 import com.example.model.PredictionOutcome
 import com.example.model.TotoColumn
@@ -116,9 +119,14 @@ fun CouponsScreen(
     onDeleteSavedJsonFile: (File) -> Unit = {},
     onNavigateToLiveResults: () -> Unit = {},
     onOpenPool: () -> Unit = {},
+    hasPlayableBulletin: Boolean = true,
+    bulletinError: String? = null,
+    onRefreshBulletin: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val noPlayableBulletin = !hasPlayableBulletin || bulletinError != null
+    val effectiveBulletinError = bulletinError ?: NO_NEW_BULLETIN_ERROR
     var selectedPlatformForPlay by remember { mutableStateOf<BettingPlatform?>(null) }
     var showSiteSelectionDialog by remember { mutableStateOf(false) }
     var showSavedJsonDialog by remember { mutableStateOf(false) }
@@ -195,7 +203,7 @@ fun CouponsScreen(
     }
 
     val activeCoupon = currentCoupon ?: coupons.first()
-    val canAfford = walletBalanceTL >= activeCoupon.columnFeeTotalTL
+    val canAfford = walletBalanceTL > 0.0 && walletBalanceTL >= activeCoupon.columnFeeTotalTL
 
     LazyColumn(
         modifier = modifier
@@ -204,6 +212,49 @@ fun CouponsScreen(
             .padding(horizontal = 12.dp, vertical = 6.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
+        if (noPlayableBulletin) {
+            item {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF2B1115)),
+                    shape = RoundedCornerShape(12.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.2.dp, VibrantRed),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("card_coupons_no_bulletin_error")
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Warning,
+                            contentDescription = effectiveBulletinError,
+                            tint = VibrantRed,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = effectiveBulletinError,
+                                color = VibrantRed,
+                                fontWeight = FontWeight.Black,
+                                fontSize = 14.sp
+                            )
+                            Text(
+                                text = "Oynanacak aktif bülten yok; oynama işlemleri devre dışı.",
+                                color = TextSecondary,
+                                fontSize = 11.sp
+                            )
+                        }
+                        TextButton(onClick = onRefreshBulletin) {
+                            Text("Yenile", color = CasinoGold, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
         // Primary actions remain visible at the top instead of being hidden
         // among advanced quick actions further down the coupon page.
         item {
@@ -281,7 +332,11 @@ fun CouponsScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable(enabled = activeCoupon.totalColumns > 0) {
-                        showCloudflareBridge = true
+                        if (noPlayableBulletin) {
+                            Toast.makeText(context, effectiveBulletinError, Toast.LENGTH_LONG).show()
+                        } else {
+                            showCloudflareBridge = true
+                        }
                     }
                     .testTag("btn_nesine_cloudflare_bridge"),
                 colors = CardDefaults.cardColors(containerColor = Color(0xFF102936)),
@@ -471,11 +526,40 @@ fun CouponsScreen(
                         }
 
                         Text(
-                            text = if (canAfford) "Yeterli Bakiye 🟢" else "Bakiye Yetersiz 🔴",
-                            color = if (canAfford) ElectricGreen else Color(0xFFEF4444),
+                            text = if (canAfford) "Yeterli Bakiye 🟢" else "$INSUFFICIENT_BALANCE_ERROR 🔴",
+                            color = if (canAfford) ElectricGreen else VibrantRed,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold
                         )
+                    }
+
+                    if (!canAfford) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Color(0xFF2B1115))
+                                .border(1.dp, VibrantRed, RoundedCornerShape(8.dp))
+                                .padding(horizontal = 10.dp, vertical = 8.dp)
+                                .testTag("card_insufficient_balance_error"),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Warning,
+                                contentDescription = INSUFFICIENT_BALANCE_ERROR,
+                                tint = VibrantRed,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Text(
+                                text = "$INSUFFICIENT_BALANCE_ERROR! Bu kupon için %.2f ₺ gereklidir.".format(activeCoupon.columnFeeTotalTL),
+                                color = Color(0xFFFCA5A5),
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(12.dp))
@@ -483,14 +567,18 @@ fun CouponsScreen(
                     // THE BIG "OYNA" ACTION BUTTON
                     Button(
                         onClick = {
-                            if (!canAfford) {
-                                Toast.makeText(context, "Yetersiz bakiye! Bu kupon için %.2f ₺ gereklidir.".format(activeCoupon.columnFeeTotalTL), Toast.LENGTH_SHORT).show()
+                            if (noPlayableBulletin) {
+                                Toast.makeText(context, effectiveBulletinError, Toast.LENGTH_LONG).show()
+                            } else if (!canAfford) {
+                                Toast.makeText(context, "$INSUFFICIENT_BALANCE_ERROR! Bu kupon için %.2f ₺ gereklidir.".format(activeCoupon.columnFeeTotalTL), Toast.LENGTH_SHORT).show()
                                 onOpenWallet()
                             } else {
                                 val success = onDeductFeeAndPlay(activeCoupon)
                                 if (success) {
                                     Toast.makeText(context, "%.2f ₺ kolon bedeli tahsil edildi. Şimdi site seçiniz.".format(activeCoupon.columnFeeTotalTL), Toast.LENGTH_SHORT).show()
                                     showSiteSelectionDialog = true
+                                } else {
+                                    Toast.makeText(context, INSUFFICIENT_BALANCE_ERROR, Toast.LENGTH_LONG).show()
                                 }
                             }
                         },
@@ -515,7 +603,7 @@ fun CouponsScreen(
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = if (canAfford) "OYNA ⚡ (%.2f ₺)".format(activeCoupon.columnFeeTotalTL) else "Google Play ile Bakiye Yükle 💰",
+                                text = if (canAfford) "OYNA ⚡ (%.2f ₺)".format(activeCoupon.columnFeeTotalTL) else "Bakiye Yetersiz • Bakiye Yükle 💰",
                                 color = if (canAfford) Color.Black else CasinoGold,
                                 fontWeight = FontWeight.Black,
                                 fontSize = 14.sp
@@ -527,13 +615,17 @@ fun CouponsScreen(
 
                     Button(
                         onClick = {
-                            if (!canAfford) {
-                                Toast.makeText(context, "Yetersiz bakiye! Cloudflare otomatik oynama için %.2f ₺ gereklidir.".format(activeCoupon.columnFeeTotalTL), Toast.LENGTH_SHORT).show()
+                            if (noPlayableBulletin) {
+                                Toast.makeText(context, effectiveBulletinError, Toast.LENGTH_LONG).show()
+                            } else if (!canAfford) {
+                                Toast.makeText(context, "$INSUFFICIENT_BALANCE_ERROR! Cloudflare otomatik oynama için %.2f ₺ gereklidir.".format(activeCoupon.columnFeeTotalTL), Toast.LENGTH_SHORT).show()
                                 onOpenWallet()
                             } else {
                                 val success = onDeductFeeAndPlay(activeCoupon)
                                 if (success) {
                                     selectedPlatformForPlay = BettingPlatform.NESINE
+                                } else {
+                                    Toast.makeText(context, INSUFFICIENT_BALANCE_ERROR, Toast.LENGTH_LONG).show()
                                 }
                             }
                         },

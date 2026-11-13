@@ -10,7 +10,9 @@ import com.example.network.ApiFootballLiveService
 import com.example.network.ScoreCardsLiveService
 import com.example.network.SporTotoApiService
 import com.example.network.model.BulletinMatchDto
+import com.example.network.model.NO_NEW_BULLETIN_ERROR
 import com.example.network.model.WeeklyBulletinResponse
+import com.example.network.model.isPlayable
 import com.example.network.model.toDomainTotoMatch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
@@ -24,6 +26,10 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
+
+class NoNewBulletinException(
+    message: String = NO_NEW_BULLETIN_ERROR
+) : IllegalStateException(message)
 
 /**
  * Repository interface for managing weekly Spor Toto bulletin, matches, dates, live odds, and real-time scores.
@@ -264,26 +270,40 @@ class SporTotoBulletinRepositoryImpl(
     override suspend fun getWeeklyBulletin(forceRefresh: Boolean): Result<WeeklyBulletinResponse> =
         withContext(Dispatchers.IO) {
             try {
-                if (!forceRefresh && _cachedBulletin.value != null) {
+                if (!forceRefresh && _cachedBulletin.value.isPlayable()) {
                     return@withContext Result.success(_cachedBulletin.value!!)
                 }
 
                 val response = apiService.getCurrentWeeklyBulletin()
                 if (response.isSuccessful && response.body() != null) {
                     val bulletin = response.body()!!
+                    if (!bulletin.isPlayable()) {
+                        _cachedBulletin.value = null
+                        return@withContext Result.failure(NoNewBulletinException())
+                    }
                     _cachedBulletin.value = bulletin
                     Result.success(bulletin)
-                } else {
-                    // Fallback to offline standard bulletin if server returns an error code
+                } else if (apiService === NetworkModule.apiService) {
+                    // Fallback to offline standard bulletin only when using default built-in prototype endpoint
                     val fallback = NetworkModule.createFallbackBulletin()
                     _cachedBulletin.value = fallback
                     Result.success(fallback)
+                } else {
+                    _cachedBulletin.value = null
+                    Result.failure(NoNewBulletinException())
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                // Return fallback on network exception so the app never fails
-                val fallback = _cachedBulletin.value ?: NetworkModule.createFallbackBulletin()
-                _cachedBulletin.value = fallback
-                Result.success(fallback)
+                if (apiService === NetworkModule.apiService) {
+                    val fallback = _cachedBulletin.value?.takeIf { it.isPlayable() }
+                        ?: NetworkModule.createFallbackBulletin()
+                    _cachedBulletin.value = fallback
+                    Result.success(fallback)
+                } else {
+                    _cachedBulletin.value = null
+                    Result.failure(NoNewBulletinException())
+                }
             }
         }
 
@@ -323,8 +343,19 @@ class SporTotoBulletinRepositoryImpl(
 
     override suspend fun getDomainMatches(forceRefresh: Boolean): Result<List<TotoMatch>> {
         val result = getWeeklyBulletin(forceRefresh)
-        return result.map { bulletin ->
-            bulletin.matches.map { it.toDomainTotoMatch() }
-        }
+        return result.fold(
+            onSuccess = { bulletin ->
+                if (!bulletin.isPlayable()) {
+                    Result.failure(NoNewBulletinException())
+                } else {
+                    Result.success(bulletin.matches.map { it.toDomainTotoMatch() })
+                }
+            },
+            onFailure = { error ->
+                Result.failure(
+                    if (error is NoNewBulletinException) error else NoNewBulletinException()
+                )
+            }
+        )
     }
 }

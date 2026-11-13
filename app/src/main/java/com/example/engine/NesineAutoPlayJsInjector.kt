@@ -64,6 +64,17 @@ object NesineAutoPlayJsInjector {
             (function() {
                 try {
                     var picks = $picksArray;
+                    var pageText = (document.body && document.body.innerText ? document.body.innerText : "").toLowerCase();
+                    if (pageText.indexOf("bakiye yetersiz") !== -1 ||
+                        pageText.indexOf("yetersiz bakiye") !== -1 ||
+                        pageText.indexOf("bakiyeniz yetersiz") !== -1 ||
+                        pageText.indexOf("yeterli bakiye bulunm") !== -1) {
+                        return JSON.stringify({
+                            success: false,
+                            clickedCount: 0,
+                            message: "Bakiye yetersiz"
+                        });
+                    }
                     var hasNativeGrid = !!document.getElementById("m-c-0-0-0");
                     if (hasNativeGrid) {
                         var marked = 0;
@@ -106,7 +117,7 @@ object NesineAutoPlayJsInjector {
                         return JSON.stringify({
                             success: false,
                             clickedCount: 0,
-                            message: "Nesine Spor Toto 15 maç tablosu henüz yüklenmedi (Bulunan satır: " + (rows ? rows.length : 0) + ")."
+                            message: "Yeni bülten yüklenmedi (Oynanacak 15 maçlık bülten bulunamadı, satır: " + (rows ? rows.length : 0) + ")."
                         });
                     }
                     var clicked = 0;

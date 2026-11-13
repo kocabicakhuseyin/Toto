@@ -146,6 +146,16 @@ fun MainAppContent(incomingNesineUrl: String? = null, onNesineUrlHandled: () -> 
 
     val favoritedMatchNumbers by viewModel.favoritedMatchNumbers.collectAsStateWithLifecycle()
     val liveScoreError by viewModel.liveScoreError.collectAsStateWithLifecycle()
+    val bulletinMessage by viewModel.bulletinMessage.collectAsStateWithLifecycle()
+    val bulletinError by viewModel.bulletinError.collectAsStateWithLifecycle()
+    val hasPlayableBulletin by viewModel.hasPlayableBulletin.collectAsStateWithLifecycle()
+
+    LaunchedEffect(bulletinMessage) {
+        bulletinMessage?.let { message ->
+            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+            viewModel.clearBulletinMessage()
+        }
+    }
 
     val saveCouponToDevice: (Coupon) -> Unit = { coupon ->
         if (coupon.totalColumns == 0) {
@@ -237,14 +247,20 @@ fun MainAppContent(incomingNesineUrl: String? = null, onNesineUrlHandled: () -> 
                     DashboardScreen(
                         userProfile = userProfile,
                         onFormulaSelected = { formula ->
-                            viewModel.selectFormula(formula)
-                            viewModel.generateCoupon(formula)
-                            currentTab = AppNavTab.COUPONS
+                            if (viewModel.ensurePlayableBulletin()) {
+                                viewModel.selectFormula(formula)
+                                viewModel.generateCoupon(formula)
+                                currentTab = AppNavTab.COUPONS
+                            }
                         },
                         onNavigateTab = { tab -> currentTab = tab },
                         onOpenTxtImportDialog = { showTxtDialog = true },
                         onOpenExcelImportDialog = { showExcelDialog = true },
-                        onOpenWizardDialog = { showFormulaWizard = true },
+                        onOpenWizardDialog = {
+                            if (viewModel.ensurePlayableBulletin()) {
+                                showFormulaWizard = true
+                            }
+                        },
                         onOpenWallet = { showGooglePlayDialog = true }
                     )
                 }
@@ -261,21 +277,35 @@ fun MainAppContent(incomingNesineUrl: String? = null, onNesineUrlHandled: () -> 
                         onApplyQuickDoubles1To9 = { viewModel.applyQuickDoubles1To9() },
                         onClearAll = { viewModel.clearAllSelections() },
                         onGenerateCoupon = {
-                            viewModel.generateCoupon(FormulaType.GUARANTEE_14)
-                            currentTab = AppNavTab.COUPONS
+                            if (viewModel.ensurePlayableBulletin()) {
+                                viewModel.generateCoupon(FormulaType.GUARANTEE_14)
+                                currentTab = AppNavTab.COUPONS
+                            }
                         },
-                        onOpenFormulaWizard = { showFormulaWizard = true },
-                        onOpenFilterDialog = { showFilterDialog = true },
+                        onOpenFormulaWizard = {
+                            if (viewModel.ensurePlayableBulletin()) {
+                                showFormulaWizard = true
+                            }
+                        },
+                        onOpenFilterDialog = {
+                            if (viewModel.ensurePlayableBulletin()) {
+                                showFilterDialog = true
+                            }
+                        },
                         targetColumnCap = targetColumnCap,
                         onSelectTargetColumnCap = { viewModel.setTargetColumnCap(it) },
                         onApplyFilterProfile = { profile ->
-                            viewModel.applyFilterProfile(profile)
-                            currentTab = AppNavTab.COUPONS
+                            if (viewModel.ensurePlayableBulletin()) {
+                                viewModel.applyFilterProfile(profile)
+                                currentTab = AppNavTab.COUPONS
+                            }
                         },
                         isRefreshing = isRefreshingBulletin,
                         onRefreshBulletin = { viewModel.refreshBulletin(forceRefresh = true) },
                         favoritedMatchNumbers = favoritedMatchNumbers,
-                        onToggleFavorite = { viewModel.toggleFavoriteMatch(it) }
+                        onToggleFavorite = { viewModel.toggleFavoriteMatch(it) },
+                        hasPlayableBulletin = hasPlayableBulletin,
+                        bulletinError = bulletinError
                     )
                 }
 
@@ -330,7 +360,10 @@ fun MainAppContent(incomingNesineUrl: String? = null, onNesineUrlHandled: () -> 
                             }
                         },
                         onNavigateToLiveResults = { currentTab = AppNavTab.RESULTS },
-                        onOpenPool = { showPool = true }
+                        onOpenPool = { showPool = true },
+                        hasPlayableBulletin = hasPlayableBulletin,
+                        bulletinError = bulletinError,
+                        onRefreshBulletin = { viewModel.refreshBulletin(forceRefresh = true) }
                     )
                 }
 
@@ -366,9 +399,11 @@ fun MainAppContent(incomingNesineUrl: String? = null, onNesineUrlHandled: () -> 
             matches = matches,
             onDismiss = { showFormulaWizard = false },
             onConfirmFormula = { formula ->
-                viewModel.selectFormula(formula)
-                viewModel.generateCoupon(formula)
-                currentTab = AppNavTab.COUPONS
+                if (viewModel.ensurePlayableBulletin()) {
+                    viewModel.selectFormula(formula)
+                    viewModel.generateCoupon(formula)
+                    currentTab = AppNavTab.COUPONS
+                }
             }
         )
     }
@@ -420,12 +455,14 @@ fun MainAppContent(incomingNesineUrl: String? = null, onNesineUrlHandled: () -> 
             sourceColumns = viewModel.currentFilterSourceColumns(),
             onDismiss = { showFilterDialog = false },
             onApplyFilters = { criteria, matrixResult, saveToDevice ->
-                val coupon = viewModel.applyFiltersAndEliminate(
-                    criteria = criteria,
-                    precomputedMatrix = matrixResult
-                )
-                if (saveToDevice) saveCouponToDevice(coupon)
-                currentTab = AppNavTab.COUPONS
+                if (viewModel.ensurePlayableBulletin()) {
+                    val coupon = viewModel.applyFiltersAndEliminate(
+                        criteria = criteria,
+                        precomputedMatrix = matrixResult
+                    )
+                    if (saveToDevice) saveCouponToDevice(coupon)
+                    currentTab = AppNavTab.COUPONS
+                }
             }
         )
     }

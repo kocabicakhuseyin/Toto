@@ -7,6 +7,7 @@ import com.example.engine.FormulaEngine
 import com.example.model.Coupon
 import com.example.model.FormulaType
 import com.example.model.ForumPost
+import com.example.model.INSUFFICIENT_BALANCE_ERROR
 import com.example.model.MatchProbability
 import com.example.model.NesineCredentials
 import com.example.model.PlatformCredentials
@@ -15,7 +16,9 @@ import com.example.model.SupportedTeam
 import com.example.model.TotoColumn
 import com.example.model.TotoMatch
 import com.example.model.UserProfile
+import com.example.network.model.NO_NEW_BULLETIN_ERROR
 import com.example.network.model.WeeklyBulletinResponse
+import com.example.network.model.isPlayable
 import com.example.repository.SporTotoBulletinRepository
 import com.example.repository.SporTotoBulletinRepositoryImpl
 import kotlinx.coroutines.delay
@@ -51,6 +54,15 @@ class TotoViewModel(
 
     private val _bulletinMessage = MutableStateFlow<String?>(null)
     val bulletinMessage: StateFlow<String?> = _bulletinMessage.asStateFlow()
+
+    private val _bulletinError = MutableStateFlow<String?>(null)
+    val bulletinError: StateFlow<String?> = _bulletinError.asStateFlow()
+
+    private val _hasPlayableBulletin = MutableStateFlow(true)
+    val hasPlayableBulletin: StateFlow<Boolean> = _hasPlayableBulletin.asStateFlow()
+
+    private val _walletError = MutableStateFlow<String?>(null)
+    val walletError: StateFlow<String?> = _walletError.asStateFlow()
 
     private val _coupons = MutableStateFlow<List<Coupon>>(emptyList())
     val coupons: StateFlow<List<Coupon>> = _coupons.asStateFlow()
@@ -179,17 +191,45 @@ class TotoViewModel(
             try {
                 val result = bulletinRepository.getDomainMatches(forceRefresh)
                 result.onSuccess { freshMatches ->
-                    if (freshMatches.isNotEmpty()) {
+                    val bulletin = currentBulletin.value
+                    val playable = freshMatches.size >= 15 && (bulletin == null || bulletin.isPlayable())
+                    if (playable) {
                         _matches.value = freshMatches
-                        _bulletinMessage.value = "Haftalık bülten ve canlı oranlar güncellendi!"
+                        _hasPlayableBulletin.value = true
+                        _bulletinError.value = null
+                        if (forceRefresh) {
+                            _bulletinMessage.value = "Haftalık bülten ve canlı oranlar güncellendi!"
+                        }
+                    } else {
+                        _matches.value = emptyList()
+                        _hasPlayableBulletin.value = false
+                        _bulletinError.value = NO_NEW_BULLETIN_ERROR
+                        _bulletinMessage.value = NO_NEW_BULLETIN_ERROR
                     }
-                }.onFailure {
-                    _bulletinMessage.value = "Bülten güncellenemedi, yerel veriler kullanılıyor."
+                }.onFailure { error ->
+                    _matches.value = emptyList()
+                    _hasPlayableBulletin.value = false
+                    val errorMsg = error.message?.takeIf { it.isNotBlank() } ?: NO_NEW_BULLETIN_ERROR
+                    _bulletinError.value = errorMsg
+                    _bulletinMessage.value = errorMsg
                 }
             } finally {
                 _isRefreshingBulletin.value = false
             }
         }
+    }
+
+    fun ensurePlayableBulletin(): Boolean {
+        val bulletin = currentBulletin.value
+        val playable = _hasPlayableBulletin.value &&
+            _matches.value.size >= 15 &&
+            (bulletin == null || bulletin.isPlayable())
+        if (!playable) {
+            _hasPlayableBulletin.value = false
+            _bulletinError.value = NO_NEW_BULLETIN_ERROR
+            _bulletinMessage.value = NO_NEW_BULLETIN_ERROR
+        }
+        return playable
     }
 
     fun clearBulletinMessage() {
@@ -318,6 +358,14 @@ class TotoViewModel(
         customTitle: String? = null,
         cap: Int? = null
     ): Coupon {
+        if (!ensurePlayableBulletin()) {
+            return Coupon(
+                id = "no_bulletin",
+                title = NO_NEW_BULLETIN_ERROR,
+                formulaType = formulaType,
+                columns = emptyList()
+            )
+        }
         val title = customTitle ?: "${formulaType.title} (#${_coupons.value.size + 1})"
         val effectiveCap = cap ?: _targetColumnCap.value
         val generatedCols = FormulaEngine.generateColumns(_matches.value, formulaType, maxColumnsCap = effectiveCap)
@@ -365,6 +413,14 @@ class TotoViewModel(
         precomputedMatrix: com.example.engine.MatrixFilterResult? = null
     ): Coupon {
         _filterCriteria.value = criteria
+        if (!ensurePlayableBulletin()) {
+            return Coupon(
+                id = "no_bulletin",
+                title = NO_NEW_BULLETIN_ERROR,
+                formulaType = _selectedFormula.value,
+                columns = emptyList()
+            )
+        }
         val result = precomputedMatrix ?: com.example.engine.TotoFilterEngine.filterSelectedMatrix(
             matches = _matches.value,
             criteria = criteria,
@@ -547,6 +603,7 @@ class TotoViewModel(
 
     fun topUpWallet(pkg: com.example.model.GooglePlayPackage) {
         val tx = com.example.billing.GooglePlayBillingManager.createPurchaseTransaction(pkg)
+        _walletError.value = null
         _userProfile.update { current ->
             current.copy(
                 walletBalanceTL = current.walletBalanceTL + pkg.amountTL,
@@ -561,15 +618,22 @@ class TotoViewModel(
     }
 
     fun canAffordCoupon(coupon: Coupon): Boolean {
-        return _userProfile.value.walletBalanceTL >= coupon.columnFeeTotalTL
+        val balance = _userProfile.value.walletBalanceTL
+        return balance > 0.0 && balance >= coupon.columnFeeTotalTL
     }
 
     fun deductColumnFee(coupon: Coupon): Boolean {
-        val required = coupon.columnFeeTotalTL
-        val currentBalance = _userProfile.value.walletBalanceTL
-        if (currentBalance < required) {
+        if (!ensurePlayableBulletin()) {
             return false
         }
+        val required = coupon.columnFeeTotalTL
+        val currentBalance = _userProfile.value.walletBalanceTL
+        if (currentBalance <= 0.0 || currentBalance < required) {
+            _walletError.value = INSUFFICIENT_BALANCE_ERROR
+            _bulletinMessage.value = "$INSUFFICIENT_BALANCE_ERROR! Bu kupon için %.2f ₺ gereklidir.".format(required)
+            return false
+        }
+        _walletError.value = null
         val tx = com.example.billing.GooglePlayBillingManager.createColumnPlayTransaction(coupon.totalColumns, required)
         _userProfile.update { current ->
             current.copy(
