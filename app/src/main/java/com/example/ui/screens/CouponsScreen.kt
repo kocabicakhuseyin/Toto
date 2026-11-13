@@ -122,6 +122,7 @@ fun CouponsScreen(
     var selectedPlatformForPlay by remember { mutableStateOf<BettingPlatform?>(null) }
     var showSiteSelectionDialog by remember { mutableStateOf(false) }
     var showSavedJsonDialog by remember { mutableStateOf(false) }
+    var showCloudflareBridge by remember { mutableStateOf(false) }
 
     if (coupons.isEmpty()) {
         Box(
@@ -269,6 +270,39 @@ fun CouponsScreen(
                             )
                         }
                     }
+                }
+            }
+        }
+
+        // Cloudflare Browser Run is a separate, user-controlled coupon
+        // preparation flow. It neither charges the Toto wallet nor submits a
+        // wager; the operator's final confirmation stays in their browser.
+        item {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(enabled = activeCoupon.totalColumns > 0) {
+                        showCloudflareBridge = true
+                    }
+                    .testTag("btn_nesine_cloudflare_bridge"),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF102936)),
+                shape = RoundedCornerShape(12.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, ElectricCyan)
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Text(
+                        text = "☁ Nesine • Bulut Chrome",
+                        color = ElectricCyan,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp
+                    )
+                    Text(
+                        text = "Cloudflare Browser Run ile 1–4 kolonu forma aktar ve kontrol et. " +
+                            "Oynama işlemi yapılmaz; Worker adresi ve erişim anahtarı gerekir.",
+                        color = TextSecondary,
+                        fontSize = 11.sp,
+                        lineHeight = 16.sp
+                    )
                 }
             }
         }
@@ -693,6 +727,13 @@ fun CouponsScreen(
     }
 
     // SITE SELECTION MODAL (Appears AFTER clicking OYNA)
+    if (showCloudflareBridge) {
+        NesineCloudflareBridgeDialog(
+            coupon = activeCoupon,
+            onDismiss = { showCloudflareBridge = false }
+        )
+    }
+
     if (showSiteSelectionDialog) {
         SiteSelectionDialog(
             coupon = activeCoupon,

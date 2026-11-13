@@ -45,10 +45,12 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -86,10 +88,20 @@ import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
 import com.example.ui.theme.VibrantRed
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+
+private sealed interface MatrixCalculationState {
+    data object Calculating : MatrixCalculationState
+    data object MissingFavorites : MatrixCalculationState
+    data class Completed(val result: MatrixFilterResult) : MatrixCalculationState
+    data class Failed(val explanation: String) : MatrixCalculationState
+}
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -114,27 +126,47 @@ fun TotoFilterDialog(
 
     // Exact matrix evaluation runs off the main thread. Changing any filter cancels
     // the previous preview; the accepted result is reused when the user applies it.
-    val matrixResult by produceState<MatrixFilterResult?>(
-        initialValue = null,
-        criteria, matches, targetColumnCap, sourceColumns
+    var previewRetry by remember { mutableIntStateOf(0) }
+    val matrixCalculation by produceState<MatrixCalculationState>(
+        initialValue = MatrixCalculationState.Calculating,
+        criteria, matches, targetColumnCap, sourceColumns, previewRetry
     ) {
         if (surpriseRequiresFavorites) {
-            value = null
+            value = MatrixCalculationState.MissingFavorites
             return@produceState
         }
-        delay(120)
-        val previewJob = currentCoroutineContext()
-        value = withContext(Dispatchers.Default) {
-            TotoFilterEngine.filterSelectedMatrix(
-                matches = matches,
-                criteria = criteria,
-                maxColumnsCap = targetColumnCap,
-                sourceColumns = sourceColumns,
-                shouldCancel = { !previewJob.isActive }
+        value = MatrixCalculationState.Calculating
+        try {
+            delay(120)
+            val result = withTimeout(30_000L) {
+                // Capture the timeout's own Job: cancel a CPU-heavy calculation
+                // as soon as the limit is reached or any filter chip changes.
+                val previewJob = currentCoroutineContext()
+                withContext(Dispatchers.Default) {
+                    TotoFilterEngine.filterSelectedMatrix(
+                        matches = matches,
+                        criteria = criteria,
+                        maxColumnsCap = targetColumnCap,
+                        sourceColumns = sourceColumns,
+                        shouldCancel = { !previewJob.isActive }
+                    )
+                }
+            }
+            value = MatrixCalculationState.Completed(result)
+        } catch (_: TimeoutCancellationException) {
+            value = MatrixCalculationState.Failed(
+                "Hesaplama 30 saniyeyi aştı. Maç seçimlerini veya filtreleri daraltıp yeniden deneyin."
+            )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            value = MatrixCalculationState.Failed(
+                "Filtre hesabı tamamlanamadı: ${error.message?.take(150) ?: "Beklenmeyen hata"}"
             )
         }
     }
-    val evaluatedResult = matrixResult
+    val evaluatedResult = (matrixCalculation as? MatrixCalculationState.Completed)?.result
+    val calculationError = (matrixCalculation as? MatrixCalculationState.Failed)?.explanation
     val previewResult: FilterPreviewResult = evaluatedResult?.toPreview()
         ?: FilterPreviewResult(0, 0, 0, 0, 0.0, 0.0)
     val canCreateCoupon = !surpriseRequiresFavorites && evaluatedResult != null &&
@@ -754,6 +786,9 @@ fun TotoFilterDialog(
                             ) {
                                 Text(
                                     text = when {
+                                        matrixCalculation is MatrixCalculationState.MissingFavorites ->
+                                            "Favori seçimleri bekleniyor"
+                                        calculationError != null -> "Filtre hesabı durduruldu"
                                         evaluatedResult == null -> "Seçili matris hesaplanıyor…"
                                         evaluatedResult.isTooLarge ->
                                             "Başlangıç: ${evaluatedResult.initialColumnCount} kolon"
@@ -772,6 +807,8 @@ fun TotoFilterDialog(
                                 )
                                 Text(
                                     text = when {
+                                        matrixCalculation is MatrixCalculationState.MissingFavorites -> "Favorileri seçin"
+                                        calculationError != null -> "Hesaplanamadı"
                                         evaluatedResult == null -> "Hesaplanıyor…"
                                         evaluatedResult.isTooLarge -> "Sınır aşıldı"
                                         else -> "${previewResult.filteredColumnCount} KOLON"
@@ -785,6 +822,8 @@ fun TotoFilterDialog(
                                 Text(
                                     text = if (evaluatedResult != null && !evaluatedResult.isTooLarge) {
                                         "Tahmini maliyet: ${String.format("%.2f", previewResult.filteredCostTL)} ₺"
+                                    } else if (calculationError != null || surpriseRequiresFavorites) {
+                                        "Filtreleme başlatılamadı"
                                     } else "Tam sonuç bekleniyor",
                                     color = TextPrimary,
                                     fontWeight = FontWeight.SemiBold,
@@ -824,6 +863,18 @@ fun TotoFilterDialog(
                                 fontSize = 12.sp,
                                 lineHeight = 17.sp
                             )
+                        }
+
+                        if (calculationError != null) {
+                            Text(
+                                text = calculationError,
+                                color = VibrantRed,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 12.sp
+                            )
+                            TextButton(onClick = { previewRetry++ }) {
+                                Text("Hesaplamayı Yeniden Dene", color = ElectricCyan)
+                            }
                         }
 
                         if (evaluatedResult != null) {
@@ -897,7 +948,12 @@ fun TotoFilterDialog(
                                         maxLines = 1
                                     )
                                     Text(
-                                        text = if (evaluatedResult == null) "Hesaplanıyor" else "${previewResult.filteredColumnCount} kolon",
+                                        text = when {
+                                            calculationError != null -> "Hata • tekrar deneyin"
+                                            surpriseRequiresFavorites -> "Favorileri seçin"
+                                            evaluatedResult == null -> "Hesaplanıyor"
+                                            else -> "${previewResult.filteredColumnCount} kolon"
+                                        },
                                         color = Color.White,
                                         fontWeight = FontWeight.SemiBold,
                                         fontSize = 11.sp,

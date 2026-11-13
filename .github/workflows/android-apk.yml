@@ -2,7 +2,7 @@ name: Android Debug APK
 
 on:
   push:
-    branches: [main, 'feature/manuel-mac-favorisi-filtre']
+    branches: [main, 'feature/manuel-mac-favorisi-filtre', 'feature/nesine-chrome-bridge']
   workflow_dispatch:
 
 permissions:

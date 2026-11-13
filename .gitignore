@@ -16,3 +16,10 @@
 local.properties
 .env
 debug.keystore
+
+# User-local Nesine Chrome bridge dependencies and browser/session files.
+/.venv/
+**/__pycache__/
+*.pyc
+/.toto-nesine-chrome/
+/playwright/.auth/
