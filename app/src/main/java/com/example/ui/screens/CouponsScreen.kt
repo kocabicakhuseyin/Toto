@@ -523,6 +523,38 @@ fun CouponsScreen(
                         }
                     }
 
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Button(
+                        onClick = {
+                            if (!canAfford) {
+                                Toast.makeText(context, "Yetersiz bakiye! Cloudflare otomatik oynama için %.2f ₺ gereklidir.".format(activeCoupon.columnFeeTotalTL), Toast.LENGTH_SHORT).show()
+                                onOpenWallet()
+                            } else {
+                                val success = onDeductFeeAndPlay(activeCoupon)
+                                if (success) {
+                                    selectedPlatformForPlay = BettingPlatform.NESINE
+                                }
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF0F2942)
+                        ),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, ElectricCyan.copy(alpha = 0.7f)),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .testTag("btn_play_cloudflare_nesine")
+                    ) {
+                        Text(
+                            text = "☁️ Cloudflare Browser Run ile Nesine'de Oyna",
+                            color = ElectricCyan,
+                            fontWeight = FontWeight.Black,
+                            fontSize = 12.5.sp
+                        )
+                    }
+
                     Spacer(modifier = Modifier.height(6.dp))
 
                     Text(
@@ -753,7 +785,6 @@ fun CouponsScreen(
             onDismiss = { selectedPlatformForPlay = null },
             onSaveCredentials = { creds ->
                 onSaveCredentials(creds)
-                selectedPlatformForPlay = null
             }
         )
     }
@@ -845,7 +876,7 @@ private fun SiteSelectionDialog(
                                     .padding(horizontal = 8.dp, vertical = 4.dp)
                             ) {
                                 Text(
-                                    text = "Oyna ⚡",
+                                    text = if (platform == BettingPlatform.NESINE) "Cloudflare ⚡" else "Oyna ⚡",
                                     color = brandColor,
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Black

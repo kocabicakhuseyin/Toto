@@ -20,8 +20,7 @@ data class TotoMatch(
     val matchDate: String,
     val probability: MatchProbability,
     val selections: Set<PredictionOutcome> = emptySet(),
-    val isBanko: Boolean = false,
-    val isFavorited: Boolean = false
+    val isBanko: Boolean = false
 )
 
 enum class MatchStatus(val label: String, val badgeColorHex: Long) {
@@ -43,8 +42,7 @@ data class MatchLiveScore(
     val league: String = "UEFA / Süper Lig",
     val homeWinOdd: Double = 1.85,
     val drawOdd: Double = 3.20,
-    val awayWinOdd: Double = 3.40,
-    val isFavorited: Boolean = false
+    val awayWinOdd: Double = 3.40
 ) {
     val winningOutcome: PredictionOutcome?
         get() = when {

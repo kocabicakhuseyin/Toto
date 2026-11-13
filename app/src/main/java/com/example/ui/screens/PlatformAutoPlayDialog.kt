@@ -1,6 +1,9 @@
 package com.example.ui.screens
 
+import android.graphics.BitmapFactory
+import android.util.Base64
 import android.widget.Toast
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -11,13 +14,19 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CloudQueue
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Person
@@ -33,7 +42,10 @@ import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextFieldDefaults
@@ -43,11 +55,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -60,15 +75,22 @@ import com.example.model.AutoPlayStepState
 import com.example.model.BettingPlatform
 import com.example.model.Coupon
 import com.example.model.PlatformCredentials
+import com.example.network.CloudflareBrowserRunner
+import com.example.network.CloudflareRunStatus
+import com.example.network.CloudflareWorkerRunResult
+import com.example.ui.theme.CasinoGold
 import com.example.ui.theme.DarkBackground
 import com.example.ui.theme.DarkCard
 import com.example.ui.theme.DarkCardBorder
 import com.example.ui.theme.ElectricCyan
 import com.example.ui.theme.ElectricGreen
+import com.example.ui.theme.NeonAmber
 import com.example.ui.theme.TextMuted
 import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
+import com.example.ui.theme.VibrantRed
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @Composable
 fun PlatformAutoPlayDialog(
@@ -78,10 +100,13 @@ fun PlatformAutoPlayDialog(
     onDismiss: () -> Unit,
     onSaveCredentials: (PlatformCredentials) -> Unit
 ) {
-    // There is no verified Nesine placement API integration. Never request or
-    // retain a Nesine password, fabricate a login, or announce a bet as placed.
     if (platform == BettingPlatform.NESINE) {
-        NesineOfficialLoginDialog(coupon = coupon, onDismiss = onDismiss)
+        NesineCloudflareAutoPlayDialog(
+            coupon = coupon,
+            savedCredentials = savedCredentials,
+            onDismiss = onDismiss,
+            onSaveCredentials = onSaveCredentials
+        )
         return
     }
 
@@ -164,7 +189,6 @@ fun PlatformAutoPlayDialog(
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    // Username Input
                     OutlinedTextField(
                         value = username,
                         onValueChange = { username = it },
@@ -189,7 +213,6 @@ fun PlatformAutoPlayDialog(
 
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    // Password Input
                     OutlinedTextField(
                         value = password,
                         onValueChange = { password = it },
@@ -201,7 +224,7 @@ fun PlatformAutoPlayDialog(
                             IconButton(onClick = { passwordVisible = !passwordVisible }) {
                                 Icon(
                                     imageVector = if (passwordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                    contentDescription = null,
+                                    contentDescription = "Şifre görünürlüğü",
                                     tint = TextMuted,
                                     modifier = Modifier.size(18.dp)
                                 )
@@ -225,7 +248,6 @@ fun PlatformAutoPlayDialog(
 
                     Spacer(modifier = Modifier.height(6.dp))
 
-                    // Remember Me Checkbox
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.clickable { rememberMe = !rememberMe }
@@ -247,7 +269,6 @@ fun PlatformAutoPlayDialog(
 
                     Spacer(modifier = Modifier.height(6.dp))
 
-                    // Security assurance banner
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -266,7 +287,6 @@ fun PlatformAutoPlayDialog(
                         )
                     }
                 } else {
-                    // Automated Play In-Progress Console
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -363,55 +383,433 @@ fun PlatformAutoPlayDialog(
 }
 
 @Composable
-private fun NesineOfficialLoginDialog(coupon: Coupon, onDismiss: () -> Unit) {
+private fun NesineCloudflareAutoPlayDialog(
+    coupon: Coupon,
+    savedCredentials: PlatformCredentials,
+    onDismiss: () -> Unit,
+    onSaveCredentials: (PlatformCredentials) -> Unit
+) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    var username by remember { mutableStateOf(savedCredentials.username) }
+    var password by remember { mutableStateOf(savedCredentials.password) }
+    var passwordVisible by remember { mutableStateOf(false) }
+    var rememberMe by remember { mutableStateOf(savedCredentials.isRemembered) }
+    var dryRun by remember { mutableStateOf(true) }
+
+    var isRunning by remember { mutableStateOf(false) }
+    var statusMessage by remember { mutableStateOf<String?>(null) }
+    var workerResult by remember { mutableStateOf<CloudflareWorkerRunResult?>(null) }
+    var screenshotBytes by remember { mutableStateOf<ByteArray?>(null) }
+    var showInAppBrowser by remember { mutableStateOf(false) }
+
+    val workerReady = remember { CloudflareBrowserRunner.isWorkerConfigured() }
+    val restApiReady = remember { CloudflareBrowserRunner.isRestApiConfigured() }
+
+    if (showInAppBrowser) {
+        NesineWebBrowserAutomationDialog(
+            coupon = coupon,
+            credentials = PlatformCredentials(BettingPlatform.NESINE, username, password, rememberMe),
+            onDismiss = { showInAppBrowser = false }
+        )
+        return
+    }
+
+    val decodedBitmap = remember(screenshotBytes, workerResult?.screenshotBase64) {
+        val raw = screenshotBytes ?: workerResult?.screenshotBase64?.let { b64 ->
+            runCatching { Base64.decode(b64, Base64.DEFAULT) }.getOrNull()
+        }
+        raw?.let { bytes ->
+            runCatching { BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap() }.getOrNull()
+        }
+    }
+
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { if (!isRunning) onDismiss() },
         containerColor = DarkCard,
+        titleContentColor = TextPrimary,
+        textContentColor = TextSecondary,
         title = {
-            Text("Nesine'de Güvenli Giriş", color = TextPrimary, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color(0xFF0F2942))
+                        .border(1.dp, ElectricCyan, RoundedCornerShape(10.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CloudQueue,
+                        contentDescription = "Cloudflare Browser Run",
+                        tint = ElectricCyan,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+                Column {
+                    Text(
+                        text = "Cloudflare ile Nesine Otomatik Oyna",
+                        fontWeight = FontWeight.Black,
+                        fontSize = 15.sp,
+                        color = TextPrimary
+                    )
+                    Text(
+                        text = "${coupon.formulaType.badge} • ${coupon.totalColumns} Kolon (${coupon.totalCostTL.toInt()} ₺)",
+                        fontSize = 11.sp,
+                        color = CasinoGold
+                    )
+                }
+            }
         },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(11.dp)) {
-                Text("${coupon.totalColumns} kolon • Toto'da hazırlanan kupon", color = ElectricCyan, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                Text(
-                    "Kullanıcı adı ve şifrenizi açılacak resmî Nesine uygulamasında veya sitesinde girin. " +
-                        "Toto şifrenizi istemez ve saklamaz.",
-                    color = TextPrimary, fontSize = 13.sp
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 460.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                // 1. Cloudflare Infrastructure Status Box
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(DarkBackground)
+                        .border(
+                            1.dp,
+                            if (workerReady || restApiReady) ElectricGreen.copy(alpha = 0.6f) else NeonAmber.copy(alpha = 0.6f),
+                            RoundedCornerShape(10.dp)
+                        )
+                        .padding(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = when {
+                            workerReady && restApiReady -> "✅ Cloudflare Worker & Browser Rendering API Hazır"
+                            workerReady -> "✅ Cloudflare Puppeteer Worker Hazır"
+                            restApiReady -> "✅ Cloudflare Screenshot REST API Hazır (Worker URL Bekleniyor)"
+                            else -> "⚠️ Cloudflare Secrets Yapılandırılmadı"
+                        },
+                        color = if (workerReady || restApiReady) ElectricGreen else NeonAmber,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 11.5.sp
+                    )
+                    Text(
+                        text = if (!workerReady) {
+                            "Tam otomatik oynama için cloudflare-worker/ projesini `npx wrangler deploy` ile dağıtıp " +
+                                "AI Studio Secrets paneline CLOUDFLARE_BROWSER_WORKER_URL, CLOUDFLARE_ACCOUNT_ID ve CLOUDFLARE_API_TOKEN ekleyin."
+                        } else {
+                            "Bulut Chrome (Chromium) oturumu Cloudflare üzerinde çalışarak nesine.com/sportoto formunu işaretler."
+                        },
+                        color = TextMuted,
+                        fontSize = 10.sp,
+                        lineHeight = 14.sp
+                    )
+                }
+
+                // 2. Nesine Credentials Fields
+                OutlinedTextField(
+                    value = username,
+                    onValueChange = { username = it },
+                    label = { Text("Nesine Üye No / T.C. / Kullanıcı Adı", fontSize = 11.sp) },
+                    leadingIcon = {
+                        Icon(Icons.Default.Person, contentDescription = null, tint = CasinoGold, modifier = Modifier.size(18.dp))
+                    },
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = DarkBackground,
+                        unfocusedContainerColor = DarkBackground,
+                        focusedTextColor = TextPrimary,
+                        unfocusedTextColor = TextPrimary,
+                        focusedIndicatorColor = CasinoGold,
+                        unfocusedIndicatorColor = DarkCardBorder
+                    ),
+                    singleLine = true,
+                    enabled = !isRunning,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("input_nesine_username"),
+                    shape = RoundedCornerShape(10.dp)
                 )
-                Text(
-                    "Kupon kolonları panoya kopyalanır. Nesine'de seçimleri kontrol edip işlemi " +
-                        "kendiniz onaylamalısınız. Bu işlem otomatik oynama değildir.",
-                    color = TextSecondary, fontSize = 12.sp
+
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it },
+                    label = { Text("Nesine Şifresi", fontSize = 11.sp) },
+                    leadingIcon = {
+                        Icon(Icons.Default.Lock, contentDescription = null, tint = CasinoGold, modifier = Modifier.size(18.dp))
+                    },
+                    trailingIcon = {
+                        IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                            Icon(
+                                imageVector = if (passwordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                contentDescription = "Şifre görünürlüğü",
+                                tint = TextMuted,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    },
+                    visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = DarkBackground,
+                        unfocusedContainerColor = DarkBackground,
+                        focusedTextColor = TextPrimary,
+                        unfocusedTextColor = TextPrimary,
+                        focusedIndicatorColor = CasinoGold,
+                        unfocusedIndicatorColor = DarkCardBorder
+                    ),
+                    singleLine = true,
+                    enabled = !isRunning,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("input_nesine_password"),
+                    shape = RoundedCornerShape(10.dp)
                 )
-                Text(
-                    "Oynadıktan sonra Nesine'nin 'Paylaş' bağlantısını Toto'daki " +
-                        "'Canlı Kupon Havuzu' ekranında doğrulayın. Kuponunuz 'Oynanan Kuponlarım' gridine kaydolur.",
-                    color = ElectricGreen, fontSize = 12.sp
-                )
-                Text(
-                    "Gerçek otomatik oynama için Nesine'nin yetkilendirilmiş entegrasyonu gerekir.",
-                    color = Color(0xFFFBBF24), fontSize = 11.sp
-                )
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.clickable(enabled = !isRunning) { rememberMe = !rememberMe }
+                ) {
+                    Checkbox(
+                        checked = rememberMe,
+                        onCheckedChange = { rememberMe = it },
+                        colors = CheckboxDefaults.colors(
+                            checkedColor = CasinoGold,
+                            uncheckedColor = TextMuted
+                        )
+                    )
+                    Text(
+                        text = "Nesine bilgilerimi cihazda hatırla",
+                        fontSize = 11.sp,
+                        color = TextSecondary
+                    )
+                }
+
+                // 3. Dry Run Safety Toggle
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(DarkBackground)
+                        .border(1.dp, DarkCardBorder, RoundedCornerShape(10.dp))
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = if (dryRun) "🛡️ Önizleme Modu (Dry Run)" else "🚀 Tam Otomatik Onay Modu",
+                            color = if (dryRun) ElectricCyan else CasinoGold,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp
+                        )
+                        Text(
+                            text = if (dryRun) {
+                                "Kolonları işaretler ve ekran görüntüsü alır; son onay tuşuna basmaz."
+                            } else {
+                                "Kolonları işaretledikten sonra Nesine'de oynama onayını tetikler."
+                            },
+                            color = TextMuted,
+                            fontSize = 10.sp
+                        )
+                    }
+                    Switch(
+                        checked = dryRun,
+                        onCheckedChange = { dryRun = it },
+                        enabled = !isRunning,
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.Black,
+                            checkedTrackColor = ElectricCyan,
+                            uncheckedThumbColor = Color.Black,
+                            uncheckedTrackColor = CasinoGold
+                        ),
+                        modifier = Modifier.testTag("switch_cloudflare_dry_run")
+                    )
+                }
+
+                // 4. Primary & Secondary Cloudflare Action Buttons
+                Button(
+                    onClick = {
+                        if (username.isBlank() || password.isBlank()) {
+                            Toast.makeText(context, "Lütfen Nesine kullanıcı adı ve şifrenizi girin.", Toast.LENGTH_SHORT).show()
+                            return@Button
+                        }
+                        val creds = PlatformCredentials(BettingPlatform.NESINE, username, password, rememberMe)
+                        if (rememberMe) {
+                            onSaveCredentials(creds)
+                        }
+                        isRunning = true
+                        statusMessage = "Cloudflare Browser Run oturumu başlatılıyor..."
+                        workerResult = null
+                        screenshotBytes = null
+
+                        scope.launch {
+                            val res = CloudflareBrowserRunner.runNesineAutoPlayWorker(
+                                coupon = coupon,
+                                credentials = creds,
+                                dryRun = dryRun
+                            )
+                            workerResult = res
+                            statusMessage = when (res.status) {
+                                CloudflareRunStatus.COMPLETED ->
+                                    "✅ Cloudflare tamamlandı: ${res.playedColumnsCount} kolon işlendi."
+                                CloudflareRunStatus.REQUIRES_2FA ->
+                                    "📲 SMS (2FA) doğrulaması gerekli. WebView robotuyla devam edebilirsiniz."
+                                CloudflareRunStatus.WAF_BLOCKED ->
+                                    "🛡️ Nesine WAF engeli algılandı. Uygulama içi WebView robotunu deneyin."
+                                CloudflareRunStatus.LOGIN_FAILED ->
+                                    "❌ Nesine girişi başarısız oldu."
+                                CloudflareRunStatus.NOT_CONFIGURED ->
+                                    res.errorMessage ?: "Cloudflare Worker yapılandırılmamış."
+                                CloudflareRunStatus.ERROR ->
+                                    "❌ Hata: ${res.errorMessage ?: "Bilinmeyen hata"}"
+                            }
+                            isRunning = false
+                        }
+                    },
+                    enabled = !isRunning,
+                    colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                        .testTag("btn_run_cloudflare_autoplay")
+                ) {
+                    if (isRunning) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            color = Color.Black,
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Cloudflare Çalışıyor...", color = Color.Black, fontWeight = FontWeight.Black, fontSize = 12.5.sp)
+                    } else {
+                        Icon(Icons.Default.CloudQueue, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Cloudflare ile Otomatik Oyna", color = Color.Black, fontWeight = FontWeight.Black, fontSize = 12.5.sp)
+                    }
+                }
+
+                OutlinedButton(
+                    onClick = {
+                        isRunning = true
+                        statusMessage = "Cloudflare Browser Rendering (/screenshot) ile nesine.com/sportoto çekiliyor..."
+                        screenshotBytes = null
+                        scope.launch {
+                            val preview = CloudflareBrowserRunner.captureNesineBulletinScreenshot()
+                            statusMessage = preview.statusMessage
+                            if (preview.success && preview.screenshotBytes != null) {
+                                screenshotBytes = preview.screenshotBytes
+                            }
+                            isRunning = false
+                        }
+                    },
+                    enabled = !isRunning,
+                    shape = RoundedCornerShape(10.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, CasinoGold.copy(alpha = 0.7f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                        .testTag("btn_cloudflare_rest_screenshot")
+                ) {
+                    Icon(Icons.Default.CameraAlt, contentDescription = null, tint = CasinoGold, modifier = Modifier.size(17.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Cloudflare Canlı Sayfa Önizle (/screenshot)", color = CasinoGold, fontWeight = FontWeight.Bold, fontSize = 11.5.sp)
+                }
+
+                OutlinedButton(
+                    onClick = { showInAppBrowser = true },
+                    enabled = !isRunning,
+                    shape = RoundedCornerShape(10.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, ElectricGreen.copy(alpha = 0.6f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                        .testTag("btn_open_nesine_webview_fallback")
+                ) {
+                    Icon(Icons.Default.Language, contentDescription = null, tint = ElectricGreen, modifier = Modifier.size(17.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Uygulama İçi Tarayıcı Robotu (WebView)", color = ElectricGreen, fontWeight = FontWeight.Bold, fontSize = 11.5.sp)
+                }
+
+                // 5. Execution Console Log & Result Preview
+                if (statusMessage != null || workerResult != null) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(DarkBackground)
+                            .border(1.dp, DarkCardBorder, RoundedCornerShape(10.dp))
+                            .padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        statusMessage?.let { msg ->
+                            Text(
+                                text = msg,
+                                color = when (workerResult?.status) {
+                                    CloudflareRunStatus.COMPLETED -> ElectricGreen
+                                    CloudflareRunStatus.ERROR, CloudflareRunStatus.LOGIN_FAILED -> VibrantRed
+                                    else -> ElectricCyan
+                                },
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.sp
+                            )
+                        }
+                        workerResult?.steps?.forEach { step ->
+                            Text(
+                                text = "• $step",
+                                color = TextSecondary,
+                                fontSize = 10.sp
+                            )
+                        }
+                    }
+                }
+
+                // 6. Cloudflare Rendered Screenshot Preview
+                decodedBitmap?.let { bmp ->
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            text = "Cloudflare Tarayıcı Ekran Görüntüsü:",
+                            color = CasinoGold,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp
+                        )
+                        Image(
+                            bitmap = bmp,
+                            contentDescription = "Cloudflare Browser Run Nesine Ekran Görüntüsü",
+                            contentScale = ContentScale.FillWidth,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 140.dp, max = 240.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .border(1.dp, ElectricCyan.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                        )
+                    }
+                }
             }
         },
         confirmButton = {
-            Button(
+            TextButton(
                 onClick = {
-                    if (PlatformAutomationManager.executeAutoPlay(
-                            context, coupon, BettingPlatform.NESINE,
-                            PlatformCredentials(BettingPlatform.NESINE)
-                        )) onDismiss()
+                    PlatformAutomationManager.executeAutoPlay(
+                        context,
+                        coupon,
+                        BettingPlatform.NESINE,
+                        PlatformCredentials(BettingPlatform.NESINE, username, password, rememberMe)
+                    )
                 },
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF59E0B))
+                enabled = !isRunning
             ) {
-                Icon(Icons.Default.OpenInNew, contentDescription = null, tint = Color.Black)
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("Nesine'yi Aç", color = Color.Black, fontWeight = FontWeight.Bold)
+                Icon(Icons.Default.OpenInNew, contentDescription = null, tint = CasinoGold, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Nesine'yi Aç", color = CasinoGold, fontWeight = FontWeight.Bold)
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Vazgeç", color = TextMuted) }
+            TextButton(onClick = onDismiss, enabled = !isRunning) {
+                Text("Kapat", color = TextMuted)
+            }
         }
     )
 }
