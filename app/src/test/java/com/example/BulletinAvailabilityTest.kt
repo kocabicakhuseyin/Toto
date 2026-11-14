@@ -24,9 +24,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.StandardTestDispatcher
-import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
-import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.ResponseBody.Companion.toResponseBody
@@ -98,7 +96,7 @@ class BulletinAvailabilityTest {
     }
 
     @Test
-    fun viewModelSetsYeniBultenYuklenmediAndBlocksPlayWhenNoBulletinAvailable() = runTest {
+    fun viewModelSetsYeniBultenYuklenmediAndBlocksPlayWhenNoBulletinAvailable() = runBlocking {
         val emptyRepo = object : SporTotoBulletinRepository {
             private val _cached = MutableStateFlow<WeeklyBulletinResponse?>(null)
             override val cachedBulletin: StateFlow<WeeklyBulletinResponse?> = _cached.asStateFlow()
@@ -124,7 +122,7 @@ class BulletinAvailabilityTest {
         }
 
         val vm = TotoViewModel(bulletinRepository = emptyRepo)
-        advanceUntilIdle()
+        testDispatcher.scheduler.runCurrent()
 
         assertFalse(vm.hasPlayableBulletin.value)
         assertEquals(NO_NEW_BULLETIN_ERROR, vm.bulletinError.value)
@@ -152,9 +150,43 @@ class BulletinAvailabilityTest {
     }
 
     @Test
-    fun viewModelSetsBakiyeYetersizWhenBalanceIsInsufficient() = runTest {
-        val vm = TotoViewModel()
-        advanceUntilIdle()
+    fun viewModelSetsBakiyeYetersizWhenBalanceIsInsufficient() = runBlocking {
+        val fallbackBulletin = NetworkModule.createFallbackBulletin()
+        val playableRepo = object : SporTotoBulletinRepository {
+            private val _cached = MutableStateFlow<WeeklyBulletinResponse?>(fallbackBulletin)
+            override val cachedBulletin: StateFlow<WeeklyBulletinResponse?> = _cached.asStateFlow()
+            override val liveScores: StateFlow<List<MatchLiveScore>> =
+                MutableStateFlow<List<MatchLiveScore>>(emptyList()).asStateFlow()
+            override val liveScoreProvider: StateFlow<String> =
+                MutableStateFlow("Test").asStateFlow()
+
+            override suspend fun getWeeklyBulletin(forceRefresh: Boolean): Result<WeeklyBulletinResponse> =
+                Result.success(fallbackBulletin)
+
+            override suspend fun getBulletinByWeek(weekNumber: Int): Result<WeeklyBulletinResponse> =
+                Result.success(fallbackBulletin)
+
+            override suspend fun refreshLiveOdds(): Result<List<BulletinMatchDto>> =
+                Result.success(fallbackBulletin.matches)
+
+            override suspend fun pollLiveScores(): Result<List<MatchLiveScore>> =
+                Result.success(emptyList())
+
+            override suspend fun getDomainMatches(forceRefresh: Boolean): Result<List<TotoMatch>> =
+                Result.success((1..15).map { idx ->
+                    TotoMatch(
+                        id = idx,
+                        matchNumber = idx,
+                        homeTeam = "Home$idx",
+                        awayTeam = "Away$idx",
+                        matchDate = "2026-11-15",
+                        probability = com.example.model.MatchProbability(listOf(50), listOf(25), listOf(25))
+                    )
+                })
+        }
+
+        val vm = TotoViewModel(bulletinRepository = playableRepo)
+        testDispatcher.scheduler.runCurrent()
 
         // Default balance is 50.0 TL -> 260 columns require 52.0 TL (> 50.0 TL)
         val picks = List(15) { PredictionOutcome.HOME }

@@ -385,11 +385,15 @@ private object NesineCloudflareHttp {
             .post("{}".toRequestBody("application/json; charset=utf-8".toMediaType()))
             .build()
         client.newCall(request).execute().use { response ->
-            val json = JSONObject(response.body?.string().orEmpty())
+            val raw = response.body?.string().orEmpty()
+            val json = runCatching { JSONObject(raw) }.getOrNull()
             if (!response.isSuccessful) {
-                throw IllegalStateException(json.optString("detail", "HTTP " + response.code))
+                throw IllegalStateException(
+                    json?.optString("detail")?.takeIf { it.isNotBlank() }
+                        ?: raw.trim().take(150).ifBlank { "HTTP ${response.code}" }
+                )
             }
-            parseSession(json)
+            parseSession(json ?: throw IllegalStateException("Sunucu geçersiz JSON döndürdü (HTTP ${response.code})."))
         }
     }
 
@@ -402,11 +406,15 @@ private object NesineCloudflareHttp {
             .header("Authorization", "Bearer " + token)
             .get().build()
         client.newCall(request).execute().use { response ->
-            val json = JSONObject(response.body?.string().orEmpty())
+            val raw = response.body?.string().orEmpty()
+            val json = runCatching { JSONObject(raw) }.getOrNull()
             if (!response.isSuccessful) {
-                throw IllegalStateException(json.optString("detail", "HTTP " + response.code))
+                throw IllegalStateException(
+                    json?.optString("detail")?.takeIf { it.isNotBlank() }
+                        ?: raw.trim().take(150).ifBlank { "HTTP ${response.code}" }
+                )
             }
-            parseSession(json)
+            parseSession(json ?: throw IllegalStateException("Sunucu geçersiz JSON döndürdü (HTTP ${response.code})."))
         }
     }
 

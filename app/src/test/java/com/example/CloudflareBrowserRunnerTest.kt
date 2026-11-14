@@ -101,4 +101,63 @@ class CloudflareBrowserRunnerTest {
         assertTrue(colJs.contains("[\"1\",\"X\",\"2\""))
         assertTrue(colJs.contains("Kolon #1"))
     }
+
+    @Test
+    fun testWorkerHttpErrorBodiesNeverProduceNullOrUnknownError() {
+        runBlocking {
+            val server = com.sun.net.httpserver.HttpServer.create(java.net.InetSocketAddress("127.0.0.1", 0), 0)
+            var statusToReturn = 401
+            var bodyToReturn = """{"error":"Unauthorized"}"""
+            server.createContext("/") { exchange ->
+                val bytes = bodyToReturn.toByteArray(Charsets.UTF_8)
+                exchange.responseHeaders.add("Content-Type", "application/json")
+                exchange.sendResponseHeaders(statusToReturn, bytes.size.toLong())
+                exchange.responseBody.use { it.write(bytes) }
+            }
+            server.start()
+            try {
+                val url = "http://127.0.0.1:${server.address.port}/"
+                val coupon = sampleCoupon()
+                val creds = PlatformCredentials(BettingPlatform.NESINE, "u", "p")
+
+                // Case 1: 401 Unauthorized
+                val res401 = CloudflareBrowserRunner.runNesineAutoPlayWorker(
+                    coupon = coupon, credentials = creds, workerUrl = url, apiToken = "bad"
+                )
+                assertEquals(CloudflareRunStatus.ERROR, res401.status)
+                assertTrue(res401.errorMessage.orEmpty().contains("401"))
+                assertFalse(res401.errorMessage.orEmpty().contains("Bilinmeyen hata"))
+
+                // Case 2: 404 from cloudflare_nesine bridge URL
+                statusToReturn = 404
+                bodyToReturn = """{"detail":"İşlem bulunamadı."}"""
+                val res404 = CloudflareBrowserRunner.runNesineAutoPlayWorker(
+                    coupon = coupon, credentials = creds, workerUrl = url, apiToken = "tok"
+                )
+                assertEquals(CloudflareRunStatus.ERROR, res404.status)
+                assertTrue(res404.errorMessage.orEmpty().contains("404"))
+                assertTrue(res404.errorMessage.orEmpty().contains("Bulut Chrome"))
+
+                // Case 3: NO_BULLETIN
+                statusToReturn = 200
+                bodyToReturn = """{"success":false,"status":"NO_BULLETIN","errorMessage":"Yeni bülten yüklenmedi"}"""
+                val resNoBulletin = CloudflareBrowserRunner.runNesineAutoPlayWorker(
+                    coupon = coupon, credentials = creds, workerUrl = url, apiToken = "tok"
+                )
+                assertEquals(CloudflareRunStatus.NO_BULLETIN, resNoBulletin.status)
+                assertEquals("Yeni bülten yüklenmedi", resNoBulletin.errorMessage)
+
+                // Case 4: INSUFFICIENT_BALANCE
+                statusToReturn = 200
+                bodyToReturn = """{"success":false,"status":"INSUFFICIENT_BALANCE","errorMessage":"Bakiye yetersiz"}"""
+                val resNoBalance = CloudflareBrowserRunner.runNesineAutoPlayWorker(
+                    coupon = coupon, credentials = creds, workerUrl = url, apiToken = "tok"
+                )
+                assertEquals(CloudflareRunStatus.INSUFFICIENT_BALANCE, resNoBalance.status)
+                assertEquals("Bakiye yetersiz", resNoBalance.errorMessage)
+            } finally {
+                server.stop(0)
+            }
+        }
+    }
 }

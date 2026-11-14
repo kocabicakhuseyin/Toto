@@ -39,14 +39,34 @@ interface NesineAutoPlayResponse {
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     if (request.method !== "POST") {
-      return jsonResponse({ error: "Method not allowed. Use POST." }, 405);
+      return jsonResponse<NesineAutoPlayResponse>(
+        {
+          success: false,
+          status: "ERROR",
+          sessionId: "",
+          playedColumnsCount: 0,
+          steps: ["HTTP 405: Yalnızca POST isteği destekleniyor."],
+          errorMessage: "Method not allowed. Use POST.",
+        },
+        405
+      );
     }
 
     // Optional Bearer token protection (configure via `wrangler secret put WORKER_AUTH_TOKEN`)
     if (env.WORKER_AUTH_TOKEN) {
       const authHeader = request.headers.get("Authorization") ?? "";
       if (authHeader !== `Bearer ${env.WORKER_AUTH_TOKEN}`) {
-        return jsonResponse({ error: "Unauthorized" }, 401);
+        return jsonResponse<NesineAutoPlayResponse>(
+          {
+            success: false,
+            status: "ERROR",
+            sessionId: "",
+            playedColumnsCount: 0,
+            steps: ["HTTP 401: Worker erişim anahtarı doğrulanamadı."],
+            errorMessage: "Unauthorized: WORKER_AUTH_TOKEN eşleşmiyor.",
+          },
+          401
+        );
       }
     }
 
@@ -54,12 +74,29 @@ export default {
     try {
       payload = await request.json<NesineAutoPlayRequest>();
     } catch {
-      return jsonResponse({ error: "Invalid JSON payload" }, 400);
+      return jsonResponse<NesineAutoPlayResponse>(
+        {
+          success: false,
+          status: "ERROR",
+          sessionId: "",
+          playedColumnsCount: 0,
+          steps: ["HTTP 400: Geçersiz JSON gövdesi."],
+          errorMessage: "Geçersiz JSON isteği.",
+        },
+        400
+      );
     }
 
     if (!payload.username || !payload.password || !payload.columns?.length) {
-      return jsonResponse(
-        { error: "username, password, and non-empty columns array are required." },
+      return jsonResponse<NesineAutoPlayResponse>(
+        {
+          success: false,
+          status: "ERROR",
+          sessionId: "",
+          playedColumnsCount: 0,
+          steps: ["HTTP 400: Kullanıcı adı, şifre veya kolon listesi eksik."],
+          errorMessage: "Nesine kullanıcı adı, şifre ve en az 1 kolon gereklidir.",
+        },
         400
       );
     }

@@ -98,14 +98,16 @@ fun PlatformAutoPlayDialog(
     platform: BettingPlatform,
     savedCredentials: PlatformCredentials,
     onDismiss: () -> Unit,
-    onSaveCredentials: (PlatformCredentials) -> Unit
+    onSaveCredentials: (PlatformCredentials) -> Unit,
+    onOpenInAppBrowser: ((Coupon, PlatformCredentials) -> Unit)? = null
 ) {
     if (platform == BettingPlatform.NESINE) {
         NesineCloudflareAutoPlayDialog(
             coupon = coupon,
             savedCredentials = savedCredentials,
             onDismiss = onDismiss,
-            onSaveCredentials = onSaveCredentials
+            onSaveCredentials = onSaveCredentials,
+            onOpenInAppBrowser = onOpenInAppBrowser
         )
         return
     }
@@ -387,7 +389,8 @@ private fun NesineCloudflareAutoPlayDialog(
     coupon: Coupon,
     savedCredentials: PlatformCredentials,
     onDismiss: () -> Unit,
-    onSaveCredentials: (PlatformCredentials) -> Unit
+    onSaveCredentials: (PlatformCredentials) -> Unit,
+    onOpenInAppBrowser: ((Coupon, PlatformCredentials) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -667,7 +670,7 @@ private fun NesineCloudflareAutoPlayDialog(
                                 CloudflareRunStatus.NOT_CONFIGURED ->
                                     res.errorMessage ?: "Cloudflare Worker yapılandırılmamış."
                                 CloudflareRunStatus.ERROR ->
-                                    "❌ Hata: ${res.errorMessage ?: "Bilinmeyen hata"}"
+                                    "❌ Hata: ${res.errorMessage?.takeIf { it.isNotBlank() } ?: res.steps.lastOrNull() ?: "Sunucu yanıtı işlenemedi."}"
                             }
                             isRunning = false
                         }
@@ -723,7 +726,15 @@ private fun NesineCloudflareAutoPlayDialog(
                 }
 
                 OutlinedButton(
-                    onClick = { showInAppBrowser = true },
+                    onClick = {
+                        val creds = PlatformCredentials(BettingPlatform.NESINE, username, password, rememberMe)
+                        if (onOpenInAppBrowser != null) {
+                            onDismiss()
+                            onOpenInAppBrowser(coupon, creds)
+                        } else {
+                            showInAppBrowser = true
+                        }
+                    },
                     enabled = !isRunning,
                     shape = RoundedCornerShape(10.dp),
                     border = androidx.compose.foundation.BorderStroke(1.dp, ElectricGreen.copy(alpha = 0.6f)),

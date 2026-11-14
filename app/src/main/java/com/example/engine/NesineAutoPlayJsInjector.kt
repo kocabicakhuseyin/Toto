@@ -75,6 +75,15 @@ object NesineAutoPlayJsInjector {
                             message: "Bakiye yetersiz"
                         });
                     }
+                    if (pageText.indexOf("aktif spor toto programı bulunmamaktadır") !== -1 ||
+                        pageText.indexOf("aktif spor toto programi bulunmamaktadir") !== -1 ||
+                        pageText.indexOf("aktif bülten yok") !== -1) {
+                        return JSON.stringify({
+                            success: false,
+                            clickedCount: 0,
+                            message: "Yeni bülten yüklenmedi"
+                        });
+                    }
                     var hasNativeGrid = !!document.getElementById("m-c-0-0-0");
                     if (hasNativeGrid) {
                         var marked = 0;

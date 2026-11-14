@@ -8,9 +8,13 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.SystemBarStyle
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -27,6 +31,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.model.Coupon
 import com.example.model.FormulaType
 import com.example.model.NesineReceiptParser
+import com.example.model.PlatformCredentials
 import com.example.ui.components.AppNavTab
 import com.example.ui.components.ModernBottomNavBar
 import com.example.ui.components.TopHeaderBar
@@ -39,9 +44,11 @@ import com.example.ui.screens.ForumScreen
 import com.example.ui.screens.GooglePlayBillingDialog
 import com.example.ui.screens.MatchAnalysisScreen
 import com.example.ui.screens.MatchResultsScreen
+import com.example.ui.screens.NesineWebBrowserAutomationContent
 import com.example.ui.screens.ProfileScreen
 import com.example.ui.screens.TotoFilterDialog
 import com.example.ui.screens.TxtImportDialog
+import com.example.ui.theme.DarkBackground
 import com.example.ui.theme.MyApplicationTheme
 import com.example.viewmodel.TotoViewModel
 
@@ -174,7 +181,7 @@ fun MainAppContent(incomingNesineUrl: String? = null, onNesineUrlHandled: () -> 
                 }.onFailure { error ->
                     Toast.makeText(
                         context,
-                        "Kupon kaydedilemedi: ${error.message ?: "Bilinmeyen hata"}",
+                        "Kupon kaydedilemedi: ${error.localizedMessage?.takeIf { it.isNotBlank() } ?: error.javaClass.simpleName}",
                         Toast.LENGTH_LONG
                     ).show()
                 }
@@ -199,6 +206,7 @@ fun MainAppContent(incomingNesineUrl: String? = null, onNesineUrlHandled: () -> 
     var showFormulaWizard by remember { mutableStateOf(false) }
     var showGooglePlayDialog by remember { mutableStateOf(false) }
     var showFilterDialog by remember { mutableStateOf(false) }
+    var webViewAutomationTarget by remember { mutableStateOf<Pair<Coupon, PlatformCredentials>?>(null) }
 
     // Back button returns to Home tab if inside a subscreen
     BackHandler(enabled = showPool || currentTab != AppNavTab.HOME) {
@@ -363,7 +371,10 @@ fun MainAppContent(incomingNesineUrl: String? = null, onNesineUrlHandled: () -> 
                         onOpenPool = { showPool = true },
                         hasPlayableBulletin = hasPlayableBulletin,
                         bulletinError = bulletinError,
-                        onRefreshBulletin = { viewModel.refreshBulletin(forceRefresh = true) }
+                        onRefreshBulletin = { viewModel.refreshBulletin(forceRefresh = true) },
+                        onOpenInAppBrowser = { targetCoupon, targetCreds ->
+                            webViewAutomationTarget = targetCoupon to targetCreds
+                        }
                     )
                 }
 
@@ -465,6 +476,22 @@ fun MainAppContent(incomingNesineUrl: String? = null, onNesineUrlHandled: () -> 
                 }
             }
         )
+    }
+
+    webViewAutomationTarget?.let { (targetCoupon, targetCreds) ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(DarkBackground)
+                .windowInsetsPadding(WindowInsets.safeDrawing)
+        ) {
+            NesineWebBrowserAutomationContent(
+                coupon = targetCoupon,
+                credentials = targetCreds,
+                onDismiss = { webViewAutomationTarget = null },
+                modifier = Modifier.fillMaxSize()
+            )
+        }
     }
 
 }

@@ -36,7 +36,11 @@ data class CloudflareAutoPlayResponse(
     val playedColumnsCount: Int = 0,
     val steps: List<String> = emptyList(),
     val screenshotBase64: String? = null,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val error: String? = null,
+    val detail: String? = null,
+    val message: String? = null,
+    val code: String? = null
 )
 
 data class CloudflareRestPreviewResult(
@@ -91,9 +95,10 @@ object CloudflareBrowserRunner {
     fun isWorkerConfigured(
         workerUrl: String = BuildConfig.CLOUDFLARE_BROWSER_WORKER_URL
     ): Boolean {
-        return workerUrl.isNotBlank() &&
-            workerUrl.startsWith("https://") &&
-            !workerUrl.contains("example.workers.dev")
+        val trimmed = workerUrl.trim()
+        return trimmed.isNotBlank() &&
+            (trimmed.startsWith("https://") || trimmed.startsWith("http://127.0.0.1") || trimmed.startsWith("http://localhost")) &&
+            !trimmed.contains("example.workers.dev")
     }
 
     /**
@@ -150,7 +155,7 @@ object CloudflareBrowserRunner {
         } catch (e: Exception) {
             CloudflareRestPreviewResult(
                 success = false,
-                statusMessage = "Cloudflare bağlantı hatası: ${e.localizedMessage ?: "Bilinmeyen hata"}"
+                statusMessage = "Cloudflare bağlantı hatası: ${e.localizedMessage?.takeIf { it.isNotBlank() } ?: e.javaClass.simpleName}"
             )
         }
     }
@@ -166,7 +171,8 @@ object CloudflareBrowserRunner {
         workerUrl: String = BuildConfig.CLOUDFLARE_BROWSER_WORKER_URL,
         apiToken: String = BuildConfig.CLOUDFLARE_API_TOKEN
     ): CloudflareWorkerRunResult = withContext(Dispatchers.IO) {
-        if (!isWorkerConfigured(workerUrl)) {
+        val normalizedUrl = workerUrl.trim()
+        if (!isWorkerConfigured(normalizedUrl)) {
             return@withContext CloudflareWorkerRunResult(
                 status = CloudflareRunStatus.NOT_CONFIGURED,
                 steps = listOf(
@@ -184,12 +190,12 @@ object CloudflareBrowserRunner {
 
         try {
             val reqBuilder = Request.Builder()
-                .url(workerUrl)
+                .url(normalizedUrl)
                 .addHeader("Content-Type", "application/json")
                 .post(jsonBody.toRequestBody(jsonMediaType))
 
             if (apiToken.isNotBlank() && !apiToken.startsWith("YOUR_")) {
-                reqBuilder.addHeader("Authorization", "Bearer $apiToken")
+                reqBuilder.addHeader("Authorization", "Bearer ${apiToken.trim()}")
             }
 
             client.newCall(reqBuilder.build()).execute().use { response ->
@@ -198,34 +204,71 @@ object CloudflareBrowserRunner {
                 val parsed = runCatching { respAdapter.fromJson(responseStr) }.getOrNull()
 
                 if (parsed != null) {
-                    val mappedStatus = when (parsed.status.uppercase()) {
-                        "COMPLETED" -> if (parsed.success) CloudflareRunStatus.COMPLETED else CloudflareRunStatus.ERROR
-                        "NO_BULLETIN" -> CloudflareRunStatus.NO_BULLETIN
-                        "INSUFFICIENT_BALANCE" -> CloudflareRunStatus.INSUFFICIENT_BALANCE
-                        "REQUIRES_2FA" -> CloudflareRunStatus.REQUIRES_2FA
-                        "WAF_BLOCKED" -> CloudflareRunStatus.WAF_BLOCKED
-                        "LOGIN_FAILED" -> CloudflareRunStatus.LOGIN_FAILED
+                    val rawServerError = listOfNotNull(
+                        parsed.errorMessage?.takeIf { it.isNotBlank() },
+                        parsed.detail?.takeIf { it.isNotBlank() },
+                        parsed.error?.takeIf { it.isNotBlank() },
+                        parsed.message?.takeIf { it.isNotBlank() }
+                    ).firstOrNull()
+
+                    val mappedStatus = when {
+                        parsed.code.equals("NO_BULLETIN", ignoreCase = true) ||
+                            parsed.status.equals("NO_BULLETIN", ignoreCase = true) ->
+                            CloudflareRunStatus.NO_BULLETIN
+                        parsed.code.equals("INSUFFICIENT_BALANCE", ignoreCase = true) ||
+                            parsed.status.equals("INSUFFICIENT_BALANCE", ignoreCase = true) ->
+                            CloudflareRunStatus.INSUFFICIENT_BALANCE
+                        parsed.status.equals("COMPLETED", ignoreCase = true) && parsed.success ->
+                            CloudflareRunStatus.COMPLETED
+                        parsed.status.equals("REQUIRES_2FA", ignoreCase = true) ->
+                            CloudflareRunStatus.REQUIRES_2FA
+                        parsed.status.equals("WAF_BLOCKED", ignoreCase = true) ->
+                            CloudflareRunStatus.WAF_BLOCKED
+                        parsed.status.equals("LOGIN_FAILED", ignoreCase = true) ->
+                            CloudflareRunStatus.LOGIN_FAILED
                         else -> CloudflareRunStatus.ERROR
                     }
+
+                    val resolvedErrorMessage = when (mappedStatus) {
+                        CloudflareRunStatus.COMPLETED -> null
+                        CloudflareRunStatus.NO_BULLETIN -> rawServerError ?: "Yeni bülten yüklenmedi"
+                        CloudflareRunStatus.INSUFFICIENT_BALANCE -> rawServerError ?: "Bakiye yetersiz"
+                        else -> formatWorkerHttpOrPayloadError(
+                            httpCode = response.code,
+                            httpMessage = response.message,
+                            rawError = rawServerError,
+                            steps = parsed.steps,
+                            rawBody = responseStr
+                        )
+                    }
+
+                    val resolvedSteps = if (parsed.steps.isNotEmpty()) {
+                        parsed.steps
+                    } else if (!response.isSuccessful || mappedStatus == CloudflareRunStatus.ERROR) {
+                        listOf("Cloudflare Worker HTTP ${response.code} yanıtı verdi.")
+                    } else {
+                        emptyList()
+                    }
+
                     CloudflareWorkerRunResult(
                         status = mappedStatus,
                         sessionId = parsed.sessionId,
                         playedColumnsCount = parsed.playedColumnsCount,
-                        steps = parsed.steps,
+                        steps = resolvedSteps,
                         screenshotBase64 = parsed.screenshotBase64,
-                        errorMessage = when (mappedStatus) {
-                            CloudflareRunStatus.NO_BULLETIN ->
-                                parsed.errorMessage?.takeIf { it.isNotBlank() } ?: "Yeni bülten yüklenmedi"
-                            CloudflareRunStatus.INSUFFICIENT_BALANCE ->
-                                parsed.errorMessage?.takeIf { it.isNotBlank() } ?: "Bakiye yetersiz"
-                            else -> parsed.errorMessage
-                        }
+                        errorMessage = resolvedErrorMessage
                     )
                 } else {
                     CloudflareWorkerRunResult(
                         status = CloudflareRunStatus.ERROR,
                         steps = listOf("Cloudflare Worker HTTP ${response.code} yanıtı verdi."),
-                        errorMessage = responseStr.take(240).ifBlank { response.message }
+                        errorMessage = formatWorkerHttpOrPayloadError(
+                            httpCode = response.code,
+                            httpMessage = response.message,
+                            rawError = null,
+                            steps = emptyList(),
+                            rawBody = responseStr
+                        )
                     )
                 }
             }
@@ -233,8 +276,34 @@ object CloudflareBrowserRunner {
             CloudflareWorkerRunResult(
                 status = CloudflareRunStatus.ERROR,
                 steps = listOf("Worker çağrısı sırasında ağ hatası oluştu."),
-                errorMessage = e.localizedMessage ?: "Bağlantı hatası"
+                errorMessage = e.localizedMessage?.takeIf { it.isNotBlank() }
+                    ?: "${e.javaClass.simpleName}: Worker bağlantısı kurulamadı."
             )
+        }
+    }
+
+    private fun formatWorkerHttpOrPayloadError(
+        httpCode: Int,
+        httpMessage: String,
+        rawError: String?,
+        steps: List<String>,
+        rawBody: String
+    ): String {
+        val baseDetail = rawError
+            ?: steps.lastOrNull()?.takeIf { it.isNotBlank() }
+            ?: rawBody.trim().take(200).takeIf { it.isNotBlank() }
+            ?: httpMessage.takeIf { it.isNotBlank() }
+
+        return when (httpCode) {
+            401, 403 -> "Yetkisiz erişim (HTTP $httpCode): Worker erişim anahtarı ile CLOUDFLARE_API_TOKEN eşleşmiyor." +
+                (baseDetail?.let { " ($it)" } ?: "")
+            404 -> if (baseDetail?.contains("İşlem bulunamadı", ignoreCase = true) == true) {
+                "Worker uç noktası bulunamadı (HTTP 404). 'Bulut Chrome' (/v1/nesine/session) Worker'ı kullanıyorsanız '☁ Nesine • Bulut Chrome' kartından açın; otomatik oynama için cloudflare-worker/ projesini dağıtın."
+            } else {
+                "Worker adresi bulunamadı (HTTP 404): ${baseDetail ?: "URL'yi kontrol edin."}"
+            }
+            405 -> "Worker bu adreste POST isteği kabul etmiyor (HTTP 405): ${baseDetail ?: "Worker URL'sini kontrol edin."}"
+            else -> baseDetail ?: "Cloudflare Worker geçersiz yanıt döndürdü (HTTP $httpCode)."
         }
     }
 

@@ -122,6 +122,7 @@ fun CouponsScreen(
     hasPlayableBulletin: Boolean = true,
     bulletinError: String? = null,
     onRefreshBulletin: () -> Unit = {},
+    onOpenInAppBrowser: ((Coupon, PlatformCredentials) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -877,7 +878,8 @@ fun CouponsScreen(
             onDismiss = { selectedPlatformForPlay = null },
             onSaveCredentials = { creds ->
                 onSaveCredentials(creds)
-            }
+            },
+            onOpenInAppBrowser = onOpenInAppBrowser
         )
     }
 
